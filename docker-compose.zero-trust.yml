@@ -1,0 +1,44 @@
+# ZeroClaw + Cloudflare Zero Trust Deployment
+# 
+# This compose file is designed to run behind Cloudflare Access
+# - No public exposure (localhost only)
+# - Pairing disabled (Cloudflare handles auth)
+#
+# Usage:
+#   1. Configure API key in .env
+#   2. docker compose -f docker-compose.zero-trust.yml up -d
+#   3. Set up Cloudflare Zero Trust application
+
+services:
+  zeroclaw:
+    image: ghcr.io/zeroclaw-labs/zeroclaw:latest
+    container_name: zeroclaw
+    restart: unless-stopped
+    
+    environment:
+      # API Configuration
+      - API_KEY=${API_KEY:-}
+      - PROVIDER=${PROVIDER:-minimax}
+      - MODEL=${MODEL:-MiniMax-M2.5}
+      
+      # Network - localhost only (Cloudflare Access handles external)
+      - ZEROCLAW_ALLOW_PUBLIC_BIND=true
+      
+    volumes:
+      - ~/.zeroclaw:/zeroclaw-data/.zeroclaw
+      - zeroclaw-data:/zeroclaw-data
+    
+    # Only expose to localhost - Cloudflare Access handles external
+    ports:
+      - "127.0.0.1:42617:42617"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "zeroclaw", "status"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  zeroclaw-data:
