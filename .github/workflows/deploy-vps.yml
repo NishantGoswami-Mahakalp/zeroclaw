@@ -1,0 +1,119 @@
+name: Deploy to VPS
+
+on:
+  # Only trigger on version tags - requires manual tagging to deploy
+  tag:
+    # Only deploy on tags matching v*.*.* pattern (e.g., v1.0.0, v1.2.3)
+    # Format: v<major>.<minor>.<patch>
+    patterns:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  # Manual deployment trigger
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+      image_tag:
+        description: 'Docker image tag (e.g., latest, v1.0.0)'
+        required: false
+        default: 'latest'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    outputs:
+      deployed_url: ${{ steps.deploy.outputs.vps_url }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for version parsing
+
+      - name: Get version from tag
+        if: github.event_name == 'tag'
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Deploying version: $VERSION"
+
+      - name: Set image tag
+        id: image
+        run: |
+          if [[ "${{ github.event.inputs.image_tag }}" != "" ]]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          elif [[ "${{ github.event_name }}" == "tag" ]]; then
+            TAG="${{ steps.version.outputs.version }}"
+          else
+            TAG="latest"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Using image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$TAG"
+
+      - name: Deploy to production VPS
+        if: github.event.inputs.environment == 'production' || (github.event_name == 'tag' && startsWith(github.ref, 'refs/tags/v'))
+        id: deploy
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image.outputs.tag }}
+        run: |
+          # Debug (without showing secrets)
+          echo "Deploying to: $VPS_USER@$VPS_HOST"
+          echo "Image: $DOCKER_IMAGE"
+          
+          # SSH and deploy
+          ssh -o StrictHostKeyChecking=no -i <(echo "$VPS_SSH_KEY") ${VPS_USER}@${VPS_HOST} << 'EOF'
+            set -e
+            
+            echo "=== Pulling latest image ==="
+            docker pull $DOCKER_IMAGE
+            
+            echo "=== Stopping existing container ==="
+            docker stop zeroclaw 2>/dev/null || true
+            docker rm zeroclaw 2>/dev/null || true
+            
+            echo "=== Starting new container ==="
+            docker run -d \
+              --name zeroclaw \
+              --restart unless-stopped \
+              -p 127.0.0.1:42617:42617 \
+              -v ~/.zeroclaw:/zeroclaw-data/.zeroclaw \
+              -v zeroclaw-data:/zeroclaw-data \
+              -e API_KEY \
+              -e PROVIDER=minimax \
+              -e MODEL=MiniMax-M2.5 \
+              -e ZEROCLAW_ALLOW_PUBLIC_BIND=true \
+              $DOCKER_IMAGE
+            
+            echo "=== Checking health ==="
+            sleep 5
+            docker logs zeroclaw --tail 20
+            
+            echo "=== Deployment complete ==="
+            echo "VPS_URL=http://localhost:42617" >> $GITHUB_OUTPUT
+          EOF
+
+      - name: Report deployment status
+        if: always()
+        run: |
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "✅ Deployment successful!"
+          else
+            echo "❌ Deployment failed"
+            exit 1
+          fi
