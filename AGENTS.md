@@ -312,37 +312,191 @@ Use these rules to keep the trait/factory architecture stable under growth.
 
 ## 8) Validation Matrix
 
-Default local checks for code changes:
+### Build Commands
 
 ```bash
+# Debug build
+cargo build
+
+# Release build (optimized for size)
+cargo build --release
+
+# Build with specific features
+cargo build --features "channel-matrix,observability-otel"
+```
+
+### Lint Commands
+
+```bash
+# Format check
 cargo fmt --all -- --check
+
+# Format and fix
+cargo fmt --all
+
+# Clippy correctness (default gate)
+cargo clippy --all-targets -- -D clippy::correctness
+
+# Clippy strict (all warnings as errors)
 cargo clippy --all-targets -- -D warnings
-cargo test
 ```
 
-Preferred local pre-PR validation path (recommended, not required):
+### Test Commands
 
 ```bash
-./dev/ci.sh all
+# Run all tests
+cargo test
+
+# Run all tests with locked deps
+cargo test --locked
+
+# Run a specific test by name
+cargo test test_name_here
+
+# Run tests in a specific file
+cargo test --test agent_e2e
+
+# Run tests matching a pattern
+cargo test provider_
+
+# Run tests with output visible
+cargo test -- --nocapture
+
+# Run tests without parallel execution (for debugging)
+cargo test -- --test-threads=1
 ```
 
-Notes:
+### Full CI Pipeline
 
-- Local Docker-based CI is strongly recommended when Docker is available.
-- Contributors are not blocked from opening a PR if local Docker CI is unavailable; in that case run the most relevant native checks and document what was run.
+```bash
+# Local Docker-based CI (recommended)
+./dev/ci.sh all
 
-Additional expectations by change type:
+# Individual CI steps
+./dev/ci.sh lint          # rustfmt + clippy correctness
+./dev/ci.sh lint-strict   # rustfmt + clippy warnings
+./dev/ci.sh test          # cargo test --locked
+./dev/ci.sh build         # cargo build --release
+./dev/ci.sh audit         # cargo audit
+./dev/ci.sh deny          # cargo deny check
+```
 
-- **Docs/template-only**:
-    - run markdown lint and link-integrity checks
-    - if touching README/docs-hub/SUMMARY/collection indexes, verify EN/ZH/JA/RU navigation parity
-    - if touching bootstrap docs/scripts, run `bash -n bootstrap.sh scripts/bootstrap.sh scripts/install.sh`
-- **Workflow changes**: validate YAML syntax; run workflow lint/sanity checks when available.
-- **Security/runtime/gateway/tools**: include at least one boundary/failure-mode validation.
+### Quick Local Validation
 
-If full checks are impractical, run the most relevant subset and document what was skipped and why.
+```bash
+# Fast pre-commit checks
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D clippy::correctness
+cargo test --locked
+```
 
-## 9) Collaboration and PR Discipline
+## 9) Code Style Guidelines
+
+### Formatting
+
+- Use `cargo fmt` for all formatting (enforced in CI)
+- Configure rustfmt in `rustfmt.toml` (currently uses `edition = "2021"`)
+- Maximum line length: let rustfmt decide (default 100)
+- Import groups (in order):
+  1. Standard library (`std`, `core`)
+  2. External crates (`crate`, `extern crate`)
+  3. `use` imports sorted alphabetically within group
+
+### Naming Conventions
+
+| Type | Convention | Example |
+|------|------------|---------|
+| Modules/files | snake_case | `src/providers/mod.rs` |
+| Types/traits/enums | PascalCase | `struct ProviderConfig` |
+| Functions/variables | snake_case | `fn connect()` |
+| Constants | SCREAMING_SNAKE_CASE | `const MAX_RETRIES: u32 = 3` |
+| Trait implementers | Predictable suffix | `OpenAiProvider`, `DiscordChannel` |
+| Factory keys | lowercase, stable | `"openai"`, `"discord"` |
+
+### Error Handling
+
+- Use `anyhow` for application-level error handling with context
+- Use `thiserror` for library-level errors with typed error enums
+- Never use `unwrap()` in production code - use `?` or explicit error handling
+- Never use `expect()` in production - return meaningful errors instead
+- Propagate errors with context using `context()` or `bail!`
+
+```rust
+// Good
+fn fetch_data(&self, url: &str) -> Result<String, anyhow::Error> {
+    let response = self.client.get(url).send()
+        .await
+        .context("Failed to send request")?;
+    // ...
+}
+
+// Avoid
+fn fetch_data(&self, url: &str) -> String {
+    self.client.get(url).send().unwrap() // Never do this
+}
+```
+
+### Async/Traits
+
+- Use `#[async_trait]` for async trait methods
+- Avoid returning boxed futures in traits when possible
+- Use `tokio::select!` for concurrent operations
+
+### Imports
+
+- Use absolute imports for crate modules: `crate::providers::traits::Provider`
+- Use relative imports for sibling modules: `super::parent_module`
+- Group imports logically, avoid line-by-line organization
+- Prefer `use path::Item;` over `use path::{Item1, Item2};` unless >3 items
+
+### Types
+
+- Prefer explicit type annotations in public APIs
+- Use newtype patterns for type safety: `struct UserId(u64)` over `u64`
+- Avoid `dyn` unless necessary for runtime polymorphism
+- Use `Cow<str>` for cheap cloning of borrowed data
+
+### Security
+
+- Never log secrets, API keys, tokens, or credentials
+- Use `SECRET_KEY`, `API_KEY` patterns in env var names (easier to audit)
+- Validate and sanitize all user inputs
+- Use typed builders for security-sensitive construction
+
+### Testing
+
+- Use `#[cfg(test)] mod tests {}` at module bottom
+- Name tests: `<subject>_<expected_behavior>`
+- Use `#[tokio::test]` for async tests
+- Use `tempfile` for file-based tests
+- Mock external dependencies via trait objects
+
+### Documentation
+
+- Document public APIs with `///` doc comments
+- Include examples in doc comments where helpful
+- Use `//!` for module-level documentation
+- Keep docs focused: what, not how
+
+### Performance
+
+- Profile before optimizing
+- Use `cargo bench` for benchmarks (see `benches/`)
+- Avoid allocations in hot paths
+- Use `&str` over `String` for function parameters when possible
+- Reuse connections and buffers
+
+### Pre-push Hook
+
+Enable the pre-push hook for automated validation:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+To skip during rapid iteration: `git push --no-verify`
+
+## 10) Collaboration and PR Discipline
 
 - Follow `.github/pull_request_template.md` fully (including side effects / blast radius).
 - Keep PR descriptions concrete: problem, change, non-goals, risk, rollback.
@@ -350,7 +504,7 @@ If full checks are impractical, run the most relevant subset and document what w
 - Prefer small PRs (`size: XS/S/M`) when possible.
 - Agent-assisted PRs are welcome, **but contributors remain accountable for understanding what their code will do**.
 
-### 9.1 Privacy/Sensitive Data and Neutral Wording (Required)
+### 10.1 Privacy/Sensitive Data and Neutral Wording (Required)
 
 Treat privacy and neutrality as merge gates, not best-effort guidelines.
 
@@ -366,7 +520,7 @@ Treat privacy and neutrality as merge gates, not best-effort guidelines.
 - If reproducing external incidents, redact and anonymize all payloads before committing.
 - Before push, review `git diff --cached` specifically for accidental sensitive strings and identity leakage.
 
-### 9.2 Superseded-PR Attribution (Required)
+### 10.2 Superseded-PR Attribution (Required)
 
 When a PR supersedes another contributor's PR and carries forward substantive code or design decisions, preserve authorship explicitly.
 
@@ -376,7 +530,7 @@ When a PR supersedes another contributor's PR and carries forward substantive co
 - In the PR body, list superseded PR links and briefly state what was incorporated from each.
 - If no actual code/design was incorporated (only inspiration), do not use `Co-authored-by`; give credit in PR notes instead.
 
-### 9.3 Superseded-PR PR Template (Recommended)
+### 10.3 Superseded-PR PR Template (Recommended)
 
 When superseding multiple PRs, use a consistent title/body structure to reduce reviewer ambiguity.
 
@@ -407,7 +561,7 @@ When superseding multiple PRs, use a consistent title/body structure to reduce r
 - Rollback: <revert commit/PR strategy>
 ```
 
-### 9.4 Superseded-PR Commit Template (Recommended)
+### 10.4 Superseded-PR Commit Template (Recommended)
 
 When a commit unifies or supersedes prior PR work, use a deterministic commit message layout so attribution is machine-parsed and reviewer-friendly.
 
@@ -452,7 +606,7 @@ Reference docs:
 - `docs/ci-map.md`
 - `docs/actions-source-policy.md`
 
-## 10) Anti-Patterns (Do Not)
+## 11) Anti-Patterns (Do Not)
 
 - Do not add heavy dependencies for minor convenience.
 - Do not silently weaken security policy or access constraints.
@@ -463,7 +617,7 @@ Reference docs:
 - Do not hide behavior-changing side effects in refactor commits.
 - Do not include personal identity or sensitive information in test data, examples, docs, or commits.
 
-## 11) Handoff Template (Agent -> Agent / Maintainer)
+## 12) Handoff Template (Agent -> Agent / Maintainer)
 
 When handing off work, include:
 
@@ -473,7 +627,7 @@ When handing off work, include:
 4. Remaining risks / unknowns
 5. Next recommended action
 
-## 12) Vibe Coding Guardrails
+## 13) Vibe Coding Guardrails
 
 When working in fast iterative mode:
 
@@ -482,3 +636,29 @@ When working in fast iterative mode:
 - Prefer deterministic behavior over clever shortcuts.
 - Do not “ship and hope” on security-sensitive paths.
 - If uncertain, leave a concrete TODO with verification context, not a hidden guess.
+
+## Landing the Plane (Session Completion)
+
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+
+**MANDATORY WORKFLOW:**
+
+1. **File issues for remaining work** - Create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **PUSH TO REMOTE** - This is MANDATORY:
+   ```bash
+   git pull --rebase
+   bd sync
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+5. **Clean up** - Clear stashes, prune remote branches
+6. **Verify** - All changes committed AND pushed
+7. **Hand off** - Provide context for next session
+
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing - that leaves work stranded locally
+- NEVER say "ready to push when you are" - YOU must push
+- If push fails, resolve and retry until it succeeds

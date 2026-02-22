@@ -293,6 +293,30 @@ pub fn all_tools_with_runtime(
         }
     }
 
+    // MCP tool (enabled when servers are configured)
+    // Temporarily disabled due to module resolution issues
+    // if root_config.mcp.enabled && !root_config.mcp.servers.is_empty() {
+    //     let mut mcp_servers = std::collections::HashMap::new();
+    //     for server in &root_config.mcp.servers {
+    //         let transport = match server.transport.as_str() {
+    //             "stdio" => zeroclaw::mcp::TransportMode::Stdio,
+    //             _ => zeroclaw::mcp::TransportMode::Http,
+    //         };
+    //         mcp_servers.insert(
+    //             server.name.clone(),
+    //             zeroclaw::mcp::McpServerConfig {
+    //                 name: server.name.clone(),
+    //                 transport_mode: transport,
+    //                 command: server.command.clone(),
+    //                 args: server.args.clone(),
+    //                 env: server.env.clone(),
+    //                 url: server.url.clone(),
+    //             },
+    //         );
+    //     }
+    //     tool_arcs.push(Arc::new(McpTool::new(mcp_servers)));
+    // }
+
     // Add delegation tool when agents are configured
     if !agents.is_empty() {
         let delegate_agents: HashMap<String, DelegateAgentConfig> = agents

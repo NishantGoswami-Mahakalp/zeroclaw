@@ -1,4 +1,5 @@
 #[allow(clippy::module_inception)]
+pub mod a2a;
 pub mod agent;
 pub mod classifier;
 pub mod dispatcher;

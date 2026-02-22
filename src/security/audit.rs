@@ -1,14 +1,18 @@
 //! Audit logging for security events
 
 use crate::config::AuditConfig;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use hmac::{Hmac, Mac};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use std::fs::OpenOptions;
+use sha2::Sha256;
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use uuid::Uuid;
+
+type HmacSha256 = Hmac<Sha256>;
 
 /// Audit event types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +25,90 @@ pub enum AuditEventType {
     AuthFailure,
     PolicyViolation,
     SecurityEvent,
+    SessionStart,
+    SessionEnd,
+    ToolExecution,
+    PeripheralAccess,
+}
+
+/// NTP synchronization status for timestamp verification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NtpSyncStatus {
+    Synced,
+    Unsynchronized,
+    Unknown,
+}
+
+impl Default for NtpSyncStatus {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+/// Network context for tracking connection origin
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkContext {
+    pub source_ip: Option<String>,
+    pub source_port: Option<u16>,
+    pub user_agent: Option<String>,
+    pub session_id: Option<String>,
+}
+
+impl Default for NetworkContext {
+    fn default() -> Self {
+        Self {
+            source_ip: None,
+            source_port: None,
+            user_agent: None,
+            session_id: None,
+        }
+    }
+}
+
+/// Operation target - what resource was accessed
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperationTarget {
+    pub resource_type: Option<String>,
+    pub resource_path: Option<String>,
+    pub resource_id: Option<String>,
+}
+
+impl Default for OperationTarget {
+    fn default() -> Self {
+        Self {
+            resource_type: None,
+            resource_path: None,
+            resource_id: None,
+        }
+    }
+}
+
+/// Hash chain entry for tamper detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HashChainEntry {
+    pub previous_hash: String,
+    pub current_hash: String,
+    pub event_index: u64,
+}
+
+impl HashChainEntry {
+    pub fn compute_hash(
+        event_json: &str,
+        previous_hash: &str,
+        event_index: u64,
+        secret_key: &[u8],
+    ) -> Result<String> {
+        let mut mac = HmacSha256::new_from_slice(secret_key)
+            .context("failed to create HMAC for hash chain")?;
+
+        mac.update(event_json.as_bytes());
+        mac.update(previous_hash.as_bytes());
+        mac.update(&event_index.to_le_bytes());
+
+        let result = mac.finalize();
+        Ok(hex::encode(result.into_bytes()))
+    }
 }
 
 /// Actor information (who performed the action)
@@ -61,12 +149,16 @@ pub struct SecurityContext {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEvent {
     pub timestamp: DateTime<Utc>,
+    pub ntp_sync: NtpSyncStatus,
     pub event_id: String,
     pub event_type: AuditEventType,
     pub actor: Option<Actor>,
     pub action: Option<Action>,
+    pub target: Option<OperationTarget>,
+    pub network: Option<NetworkContext>,
     pub result: Option<ExecutionResult>,
     pub security: SecurityContext,
+    pub hash_chain: Option<HashChainEntry>,
 }
 
 impl AuditEvent {
@@ -74,17 +166,27 @@ impl AuditEvent {
     pub fn new(event_type: AuditEventType) -> Self {
         Self {
             timestamp: Utc::now(),
+            ntp_sync: NtpSyncStatus::Unknown,
             event_id: Uuid::new_v4().to_string(),
             event_type,
             actor: None,
             action: None,
+            target: None,
+            network: None,
             result: None,
             security: SecurityContext {
                 policy_violation: false,
                 rate_limit_remaining: None,
                 sandbox_backend: None,
             },
+            hash_chain: None,
         }
+    }
+
+    /// Set NTP sync status
+    pub fn with_ntp_sync(mut self, status: NtpSyncStatus) -> Self {
+        self.ntp_sync = status;
+        self
     }
 
     /// Set the actor
@@ -141,6 +243,132 @@ impl AuditEvent {
         self.security.sandbox_backend = sandbox_backend;
         self
     }
+
+    /// Set network context (IP, session)
+    pub fn with_network(
+        mut self,
+        source_ip: Option<String>,
+        source_port: Option<u16>,
+        user_agent: Option<String>,
+        session_id: Option<String>,
+    ) -> Self {
+        self.network = Some(NetworkContext {
+            source_ip,
+            source_port,
+            user_agent,
+            session_id,
+        });
+        self
+    }
+
+    /// Set operation target
+    pub fn with_target(
+        mut self,
+        resource_type: Option<String>,
+        resource_path: Option<String>,
+        resource_id: Option<String>,
+    ) -> Self {
+        self.target = Some(OperationTarget {
+            resource_type,
+            resource_path,
+            resource_id,
+        });
+        self
+    }
+
+    /// Compute and set hash chain entry
+    pub fn with_hash_chain(
+        mut self,
+        previous_hash: &str,
+        event_index: u64,
+        secret_key: &[u8],
+    ) -> Result<Self> {
+        let event_json =
+            serde_json::to_string(&self).context("failed to serialize event for hash chain")?;
+
+        let current_hash =
+            HashChainEntry::compute_hash(&event_json, previous_hash, event_index, secret_key)?;
+
+        self.hash_chain = Some(HashChainEntry {
+            previous_hash: previous_hash.to_string(),
+            current_hash,
+            event_index,
+        });
+        Ok(self)
+    }
+}
+
+/// Audit log export backend
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditExportBackend {
+    File,
+    Syslog,
+    Http,
+}
+
+/// Audit log export configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditExportConfig {
+    pub backend: AuditExportBackend,
+    pub endpoint: Option<String>,
+    pub enabled: bool,
+}
+
+impl Default for AuditExportConfig {
+    fn default() -> Self {
+        Self {
+            backend: AuditExportBackend::File,
+            endpoint: None,
+            enabled: false,
+        }
+    }
+}
+
+/// Audit retention policy
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditRetentionPolicy {
+    pub max_files: u32,
+    pub max_age_days: Option<u32>,
+}
+
+impl Default for AuditRetentionPolicy {
+    fn default() -> Self {
+        Self {
+            max_files: 10,
+            max_age_days: Some(90),
+        }
+    }
+}
+
+/// Hash chain state for tamper detection
+pub struct HashChainState {
+    last_hash: String,
+    event_index: u64,
+    secret_key: Vec<u8>,
+}
+
+impl HashChainState {
+    pub fn new(secret_key: Vec<u8>) -> Self {
+        Self {
+            last_hash: "genesis".to_string(),
+            event_index: 0,
+            secret_key,
+        }
+    }
+
+    pub fn get_last_hash(&self) -> &str {
+        &self.last_hash
+    }
+
+    pub fn get_event_index(&self) -> u64 {
+        self.event_index
+    }
+
+    pub fn advance(&mut self, new_hash: String) {
+        self.last_hash = new_hash;
+        self.event_index += 1;
+    }
 }
 
 /// Audit logger
@@ -148,6 +376,9 @@ pub struct AuditLogger {
     log_path: PathBuf,
     config: AuditConfig,
     buffer: Mutex<Vec<AuditEvent>>,
+    hash_chain: Mutex<Option<HashChainState>>,
+    retention_policy: AuditRetentionPolicy,
+    export_configs: Vec<AuditExportConfig>,
 }
 
 /// Structured command execution details for audit logging.
@@ -166,23 +397,83 @@ impl AuditLogger {
     /// Create a new audit logger
     pub fn new(config: AuditConfig, zeroclaw_dir: PathBuf) -> Result<Self> {
         let log_path = zeroclaw_dir.join(&config.log_path);
+
+        let hash_chain = if config.sign_events {
+            let secret_key = std::env::var("ZEROCLAW_AUDIT_SECRET")
+                .unwrap_or_else(|_| "default-audit-key-change-in-production".to_string())
+                .into_bytes();
+            Some(HashChainState::new(secret_key))
+        } else {
+            None
+        };
+
         Ok(Self {
             log_path,
             config,
             buffer: Mutex::new(Vec::new()),
+            hash_chain: Mutex::new(hash_chain),
+            retention_policy: AuditRetentionPolicy::default(),
+            export_configs: Vec::new(),
         })
     }
 
-    /// Log an event
+    /// Configure export backends
+    pub fn with_export_backends(mut self, configs: Vec<AuditExportConfig>) -> Self {
+        self.export_configs = configs;
+        self
+    }
+
+    /// Configure retention policy
+    pub fn with_retention_policy(mut self, policy: AuditRetentionPolicy) -> Self {
+        self.retention_policy = policy;
+        self
+    }
+
+    /// Log an event with hash chain support
     pub fn log(&self, event: &AuditEvent) -> Result<()> {
         if !self.config.enabled {
             return Ok(());
         }
 
-        // Check log size and rotate if needed
         self.rotate_if_needed()?;
+        self.enforce_retention()?;
 
-        // Serialize and write
+        let event_with_hash = {
+            let mut hc = self.hash_chain.lock();
+            if let Some(ref mut state) = *hc {
+                let previous_hash = state.get_last_hash().to_string();
+                let event_index = state.get_event_index();
+
+                let event_json = serde_json::to_string(event)?;
+                let current_hash = HashChainEntry::compute_hash(
+                    &event_json,
+                    &previous_hash,
+                    event_index,
+                    &state.secret_key,
+                )?;
+
+                state.advance(current_hash.clone());
+
+                let mut event = event.clone();
+                event.hash_chain = Some(HashChainEntry {
+                    previous_hash,
+                    current_hash,
+                    event_index,
+                });
+                event
+            } else {
+                event.clone()
+            }
+        };
+
+        self.write_event(&event_with_hash)?;
+        self.export_to_backends(&event_with_hash)?;
+
+        Ok(())
+    }
+
+    /// Write event to file
+    fn write_event(&self, event: &AuditEvent) -> Result<()> {
         let line = serde_json::to_string(event)?;
         let mut file = OpenOptions::new()
             .create(true)
@@ -191,7 +482,83 @@ impl AuditLogger {
 
         writeln!(file, "{}", line)?;
         file.sync_all()?;
+        Ok(())
+    }
 
+    /// Export event to configured backends
+    fn export_to_backends(&self, event: &AuditEvent) -> Result<()> {
+        for config in &self.export_configs {
+            if !config.enabled {
+                continue;
+            }
+
+            match config.backend {
+                AuditExportBackend::Syslog => {
+                    self.export_to_syslog(event)?;
+                }
+                AuditExportBackend::Http => {
+                    if let Some(ref endpoint) = config.endpoint {
+                        self.export_to_http(event, endpoint)?;
+                    }
+                }
+                AuditExportBackend::File => {
+                    // Already handled by write_event
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Export to syslog
+    fn export_to_syslog(&self, event: &AuditEvent) -> Result<()> {
+        #[cfg(unix)]
+        {
+            let syslog_msg = format!(
+                "<{}> zeroclaw: {:?} - {}",
+                if event.result.as_ref().map_or(false, |r| r.success) {
+                    14 // info
+                } else {
+                    10 // alert
+                },
+                event.event_type,
+                event.event_id
+            );
+
+            tracing::info!("{}", syslog_msg);
+        }
+        Ok(())
+    }
+
+    /// Export to HTTP endpoint
+    fn export_to_http(&self, event: &AuditEvent, endpoint: &str) -> Result<()> {
+        let client = reqwest::blocking::Client::new();
+        let _ = client
+            .post(endpoint)
+            .json(event)
+            .timeout(std::time::Duration::from_secs(5))
+            .send();
+        Ok(())
+    }
+
+    /// Enforce retention policy
+    fn enforce_retention(&self) -> Result<()> {
+        if let Ok(entries) = fs::read_dir(&self.log_path.parent().unwrap_or(&self.log_path)) {
+            let mut log_files: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().to_string_lossy().contains("audit.log"))
+                .collect();
+
+            log_files.sort_by_key(|e| std::cmp::Reverse(e.path()));
+
+            if log_files.len() > self.retention_policy.max_files as usize {
+                for file in log_files
+                    .iter()
+                    .skip(self.retention_policy.max_files as usize)
+                {
+                    let _ = fs::remove_file(file.path());
+                }
+            }
+        }
         Ok(())
     }
 

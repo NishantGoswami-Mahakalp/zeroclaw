@@ -1,25 +1,41 @@
 pub mod docker;
 pub mod native;
 pub mod traits;
+pub mod wasm;
 
 pub use docker::DockerRuntime;
 pub use native::NativeRuntime;
 pub use traits::RuntimeAdapter;
+pub use wasm::WasmRuntimeAdapter;
 
-use crate::config::RuntimeConfig;
+use crate::config::schema::{RuntimeConfig, WasmRuntimeConfig};
 
 /// Factory: create the right runtime from config
 pub fn create_runtime(config: &RuntimeConfig) -> anyhow::Result<Box<dyn RuntimeAdapter>> {
     match config.kind.as_str() {
         "native" => Ok(Box::new(NativeRuntime::new())),
         "docker" => Ok(Box::new(DockerRuntime::new(config.docker.clone()))),
+        "wasm" => {
+            let wasm_config = WasmRuntimeConfig {
+                tools_dir: config.wasm.tools_dir.clone(),
+                memory_limit_mb: config.wasm.memory_limit_mb,
+                timeout_secs: config.wasm.timeout_secs,
+                cpu_quota: config.wasm.cpu_quota,
+                allow_workspace_read: config.wasm.allow_workspace_read,
+                allow_workspace_write: config.wasm.allow_workspace_write,
+                allowed_hosts: config.wasm.allowed_hosts.clone(),
+            };
+            Ok(Box::new(WasmRuntimeAdapter::new(wasm_config)))
+        }
         "cloudflare" => anyhow::bail!(
             "runtime.kind='cloudflare' is not implemented yet. Use runtime.kind='native' for now."
         ),
         other if other.trim().is_empty() => {
-            anyhow::bail!("runtime.kind cannot be empty. Supported values: native, docker")
+            anyhow::bail!("runtime.kind cannot be empty. Supported values: native, docker, wasm")
         }
-        other => anyhow::bail!("Unknown runtime kind '{other}'. Supported values: native, docker"),
+        other => {
+            anyhow::bail!("Unknown runtime kind '{other}'. Supported values: native, docker, wasm")
+        }
     }
 }
 
@@ -47,6 +63,17 @@ mod tests {
         let rt = create_runtime(&cfg).unwrap();
         assert_eq!(rt.name(), "docker");
         assert!(rt.has_shell_access());
+    }
+
+    #[test]
+    fn factory_wasm() {
+        let cfg = RuntimeConfig {
+            kind: "wasm".into(),
+            ..RuntimeConfig::default()
+        };
+        let rt = create_runtime(&cfg).unwrap();
+        assert_eq!(rt.name(), "wasm");
+        assert!(!rt.has_shell_access());
     }
 
     #[test]

@@ -156,6 +156,14 @@ pub struct Config {
     #[serde(default)]
     pub composio: ComposioConfig,
 
+    /// MCP (Model Context Protocol) client configuration (`[mcp]`).
+    #[serde(default)]
+    pub mcp: McpConfig,
+
+    /// A2A (Agent-to-Agent) Protocol server configuration (`[a2a]`).
+    #[serde(default)]
+    pub a2a: A2AConfig,
+
     /// Secrets encryption configuration (`[secrets]`).
     #[serde(default)]
     pub secrets: SecretsConfig,
@@ -853,6 +861,110 @@ impl Default for ComposioConfig {
             enabled: false,
             api_key: None,
             entity_id: default_entity_id(),
+        }
+    }
+}
+
+/// MCP server configuration for a single server (`[[mcp.servers]]` section).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct McpServerConfig {
+    /// Server name (used as identifier)
+    pub name: String,
+    /// Transport mode: "stdio" or "http"
+    #[serde(default = "default_mcp_transport")]
+    pub transport: String,
+    /// Command to spawn for stdio transport (e.g., "npx", "python")
+    #[serde(default)]
+    pub command: Option<String>,
+    /// Arguments for the command
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Environment variables for the subprocess
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+    /// URL for HTTP transport
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
+fn default_mcp_transport() -> String {
+    "http".to_string()
+}
+
+/// MCP (Model Context Protocol) client configuration (`[mcp]` section).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct McpConfig {
+    /// Enable MCP client integration
+    #[serde(default)]
+    pub enabled: bool,
+    /// List of MCP servers to connect to
+    #[serde(default)]
+    pub servers: Vec<McpServerConfig>,
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            servers: Vec::new(),
+        }
+    }
+}
+
+// ── A2A (Agent-to-Agent) Protocol ───────────────────────────────────
+
+/// A2A (Agent-to-Agent) Protocol server configuration (`[a2a]` section).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct A2AConfig {
+    /// Enable A2A server
+    #[serde(default)]
+    pub enabled: bool,
+    /// A2A server host (default: 127.0.0.1)
+    #[serde(default = "default_a2a_host")]
+    pub host: String,
+    /// A2A server port (default: 42618)
+    #[serde(default = "default_a2a_port")]
+    pub port: u16,
+    /// Require authentication for A2A requests
+    #[serde(default = "default_true")]
+    pub require_authentication: bool,
+    /// API keys for A2A authentication
+    #[serde(default)]
+    pub api_keys: Vec<String>,
+    /// HTTP discovery endpoints for agent lookup
+    #[serde(default)]
+    pub discovery_endpoints: Vec<String>,
+    /// Agent configuration file path for static discovery
+    #[serde(default)]
+    pub agents_file: Option<String>,
+    /// Cache TTL for discovery (seconds)
+    #[serde(default = "default_a2a_cache_ttl")]
+    pub cache_ttl_secs: u64,
+}
+
+fn default_a2a_host() -> String {
+    "127.0.0.1".into()
+}
+
+fn default_a2a_port() -> u16 {
+    42618
+}
+
+fn default_a2a_cache_ttl() -> u64 {
+    300
+}
+
+impl Default for A2AConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            host: default_a2a_host(),
+            port: default_a2a_port(),
+            require_authentication: true,
+            api_keys: Vec::new(),
+            discovery_endpoints: Vec::new(),
+            agents_file: None,
+            cache_ttl_secs: default_a2a_cache_ttl(),
         }
     }
 }
@@ -1974,13 +2086,17 @@ impl Default for AutonomyConfig {
 /// Runtime adapter configuration (`[runtime]` section).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct RuntimeConfig {
-    /// Runtime kind (`native` | `docker`).
+    /// Runtime kind (`native` | `docker` | `wasm`).
     #[serde(default = "default_runtime_kind")]
     pub kind: String,
 
     /// Docker runtime settings (used when `kind = "docker"`).
     #[serde(default)]
     pub docker: DockerRuntimeConfig,
+
+    /// WASM runtime settings (used when `kind = "wasm"`).
+    #[serde(default)]
+    pub wasm: WasmRuntimeConfig,
 
     /// Global reasoning override for providers that expose explicit controls.
     /// - `None`: provider default behavior
@@ -2061,7 +2177,66 @@ impl Default for RuntimeConfig {
         Self {
             kind: default_runtime_kind(),
             docker: DockerRuntimeConfig::default(),
+            wasm: WasmRuntimeConfig::default(),
             reasoning_enabled: None,
+        }
+    }
+}
+
+/// WASM runtime configuration (`[runtime.wasm]` section).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct WasmRuntimeConfig {
+    /// Directory containing WASM tool modules (relative to workspace).
+    #[serde(default = "default_wasm_tools_dir")]
+    pub tools_dir: String,
+
+    /// Maximum memory limit per WASM module in MB.
+    #[serde(default = "default_wasm_memory_limit_mb")]
+    pub memory_limit_mb: u64,
+
+    /// Maximum execution time in seconds.
+    #[serde(default = "default_wasm_timeout_secs")]
+    pub timeout_secs: u64,
+
+    /// CPU quota - maximum instructions per execution (0 = unlimited).
+    #[serde(default)]
+    pub cpu_quota: u64,
+
+    /// Allow WASM modules to read from workspace.
+    #[serde(default)]
+    pub allow_workspace_read: bool,
+
+    /// Allow WASM modules to write to workspace.
+    #[serde(default)]
+    pub allow_workspace_write: bool,
+
+    /// Allowed HTTP hosts for outbound requests (empty = no network).
+    #[serde(default)]
+    pub allowed_hosts: Vec<String>,
+}
+
+fn default_wasm_tools_dir() -> String {
+    "tools/wasm".into()
+}
+
+fn default_wasm_memory_limit_mb() -> u64 {
+    64
+}
+
+fn default_wasm_timeout_secs() -> u64 {
+    30
+}
+
+impl Default for WasmRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            tools_dir: default_wasm_tools_dir(),
+            memory_limit_mb: default_wasm_memory_limit_mb(),
+            timeout_secs: default_wasm_timeout_secs(),
+            cpu_quota: 0,
+            allow_workspace_read: false,
+            allow_workspace_write: false,
+            allowed_hosts: Vec::new(),
         }
     }
 }
@@ -3317,6 +3492,41 @@ pub struct AuditConfig {
     /// Sign events with HMAC for tamper evidence
     #[serde(default)]
     pub sign_events: bool,
+
+    /// Retention: maximum number of rotated log files to keep
+    #[serde(default = "default_audit_max_files")]
+    pub max_files: u32,
+
+    /// Retention: maximum age in days (None = forever)
+    #[serde(default)]
+    pub retention_days: Option<u32>,
+
+    /// Export configuration (for file, syslog, http backends)
+    #[serde(default)]
+    pub export: Vec<AuditExportSchemaConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AuditExportSchemaConfig {
+    /// Backend type: file, syslog, http
+    #[serde(default = "default_export_backend")]
+    pub backend: String,
+
+    /// HTTP endpoint for http backend
+    #[serde(default)]
+    pub endpoint: Option<String>,
+
+    /// Enable this export backend
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_export_backend() -> String {
+    "file".to_string()
+}
+
+fn default_audit_max_files() -> u32 {
+    10
 }
 
 fn default_audit_enabled() -> bool {
@@ -3338,6 +3548,9 @@ impl Default for AuditConfig {
             log_path: default_audit_log_path(),
             max_size_mb: default_audit_max_size_mb(),
             sign_events: false,
+            max_files: default_audit_max_files(),
+            retention_days: Some(90),
+            export: Vec::new(),
         }
     }
 }
@@ -3449,6 +3662,8 @@ impl Default for Config {
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
+            mcp: McpConfig::default(),
+            a2a: A2AConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
@@ -4720,6 +4935,8 @@ default_temperature = 0.7
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
+            mcp: McpConfig::default(),
+            a2a: A2AConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
@@ -4894,6 +5111,8 @@ tool_dispatcher = "xml"
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
+            mcp: McpConfig::default(),
+            a2a: A2AConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),

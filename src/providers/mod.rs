@@ -21,10 +21,13 @@ pub mod bedrock;
 pub mod compatible;
 pub mod copilot;
 pub mod gemini;
+pub mod mistral_nemo;
 pub mod ollama;
 pub mod openai;
 pub mod openai_codex;
 pub mod openrouter;
+pub mod phi4;
+pub mod qwen25;
 pub mod reliable;
 pub mod router;
 pub mod telnyx;
@@ -813,7 +816,7 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         "ollama" => vec!["OLLAMA_API_KEY"],
         "venice" => vec!["VENICE_API_KEY"],
         "groq" => vec!["GROQ_API_KEY"],
-        "mistral" => vec!["MISTRAL_API_KEY"],
+        "mistral" | "mistral-nemo" => vec!["MISTRAL_API_KEY"],
         "deepseek" => vec!["DEEPSEEK_API_KEY"],
         "xai" | "grok" => vec!["XAI_API_KEY"],
         "together" | "together-ai" => vec!["TOGETHER_API_KEY"],
@@ -831,7 +834,7 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         "bedrock" | "aws-bedrock" => return None,
         name if is_qianfan_alias(name) => vec!["QIANFAN_API_KEY"],
         name if is_doubao_alias(name) => vec!["ARK_API_KEY", "DOUBAO_API_KEY"],
-        name if is_qwen_alias(name) => vec!["DASHSCOPE_API_KEY"],
+        name if is_qwen_alias(name) => vec!["QWEN_API_KEY", "DASHSCOPE_API_KEY"],
         name if is_zai_alias(name) => vec!["ZAI_API_KEY"],
         "nvidia" | "nvidia-nim" | "build.nvidia.com" => vec!["NVIDIA_API_KEY"],
         "synthetic" => vec!["SYNTHETIC_API_KEY"],
@@ -845,6 +848,7 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         "vllm" => vec!["VLLM_API_KEY"],
         "osaurus" => vec!["OSAURUS_API_KEY"],
         "telnyx" => vec!["TELNYX_API_KEY"],
+        "phi4" => vec!["PHI4_API_KEY", "AZURE_OPENAI_API_KEY"],
         _ => vec![],
     };
 
@@ -980,6 +984,21 @@ fn create_provider_with_url_and_options(
             )))
         }
         "telnyx" => Ok(Box::new(telnyx::TelnyxProvider::new(key))),
+        // Phi-4 provider with native tool calling and vision support (Azure AI Foundry)
+        "phi4" => {
+            let base_url: Option<&str> = api_url
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            Ok(Box::new(phi4::Phi4Provider::with_base_url(base_url, key)))
+        }
+        // Qwen2.5 provider with native tool calling and vision support
+        "qwen" => {
+            let base_url: Option<&str> = api_url
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .or_else(|| qwen_base_url(name));
+            Ok(Box::new(qwen25::Qwen25Provider::with_base_url(base_url, key)))
+        }
 
         // ── OpenAI-compatible providers ──────────────────────
         "venice" => Ok(Box::new(OpenAiCompatibleProvider::new(
@@ -1080,6 +1099,12 @@ fn create_provider_with_url_and_options(
         "groq" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Groq", "https://api.groq.com/openai", key, AuthStyle::Bearer,
         ))),
+        "mistral-nemo" => {
+            let base_url = api_url
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            Ok(Box::new(mistral_nemo::MistralNeMoProvider::new(key).with_base_url(base_url)))
+        }
         "mistral" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Mistral", "https://api.mistral.ai/v1", key, AuthStyle::Bearer,
         ))),
