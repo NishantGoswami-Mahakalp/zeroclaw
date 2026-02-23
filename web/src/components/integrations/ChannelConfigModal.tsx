@@ -23,6 +23,26 @@ interface ChannelFields {
 }
 
 const CHANNEL_FIELDS: ChannelFields = {
+  anthropic: [
+    { label: 'API Key', type: 'password', required: false, hint: 'Leave empty to use ANTHROPIC_API_KEY env var' },
+    { label: 'Default Model', type: 'text', required: false, hint: 'e.g., claude-sonnet-4-20250514' },
+  ],
+  openai: [
+    { label: 'API Key', type: 'password', required: false, hint: 'Leave empty to use OPENAI_API_KEY env var' },
+    { label: 'Default Model', type: 'text', required: false, hint: 'e.g., gpt-4o' },
+  ],
+  google: [
+    { label: 'API Key', type: 'password', required: false, hint: 'Leave empty to use GOOGLE_API_KEY env var' },
+    { label: 'Default Model', type: 'text', required: false, hint: 'e.g., gemini-2.0-flash' },
+  ],
+  openrouter: [
+    { label: 'API Key', type: 'password', required: false, hint: 'Leave empty to use OPENROUTER_API_KEY env var' },
+    { label: 'Default Model', type: 'text', required: false, hint: 'e.g., openai/gpt-4o' },
+  ],
+  ollama: [
+    { label: 'API URL', type: 'url', required: false, hint: 'e.g., http://localhost:11434' },
+    { label: 'Default Model', type: 'text', required: false, hint: 'e.g., llama3' },
+  ],
   telegram: [
     { label: 'Bot Token', type: 'password', required: true, hint: 'Get from @BotFather' },
     { label: 'Allowed Users', type: 'text', required: false, hint: 'Comma-separated user IDs or usernames (empty = deny all)' },
@@ -56,13 +76,42 @@ const CHANNEL_FIELDS: ChannelFields = {
   ],
 };
 
+const PROVIDER_KEYS = ['anthropic', 'openai', 'google', 'openrouter', 'ollama', 'groq', 'deepseek', 'mistral', 'xai', 'together', 'fireworks', 'perplexity', 'cohere', 'qwen', 'glm', 'moonshot', 'minimax'];
+
 function getChannelKey(name: string): string {
   return name.toLowerCase().replace(/\s+/g, '_');
+}
+
+function isProviderKey(key: string): boolean {
+  return PROVIDER_KEYS.includes(key);
 }
 
 function parseCurrentConfig(configToml: string, channelKey: string): Record<string, string> {
   const result: Record<string, string> = {};
   const lines = configToml.split('\n');
+  
+  if (isProviderKey(channelKey)) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('[') || trimmed.startsWith('#')) continue;
+      
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx > 0) {
+        const key = trimmed.slice(0, eqIdx).trim();
+        let value = trimmed.slice(eqIdx + 1).trim();
+        
+        if (value.startsWith('"') && value.endsWith('"')) {
+          value = value.slice(1, -1);
+        }
+        
+        if (key === 'api_key' || key === 'api_url' || key === 'default_model' || key === 'default_provider') {
+          result[key] = value;
+        }
+      }
+    }
+    return result;
+  }
+  
   let inChannel = false;
   let currentField = '';
 
@@ -106,6 +155,24 @@ function parseCurrentConfig(configToml: string, channelKey: string): Record<stri
 }
 
 function generateChannelConfig(channelKey: string, values: Record<string, string>, existingConfig: string): string {
+  if (isProviderKey(channelKey)) {
+    let newConfig = existingConfig;
+    
+    for (const [key, value] of Object.entries(values)) {
+      if (!value) continue;
+      
+      const pattern = new RegExp(`^${key}\\s*=.*$`, 'm');
+      const tomlValue = key === 'default_provider' ? `"${channelKey}"` : `"${value}"`;
+      
+      if (pattern.test(newConfig)) {
+        newConfig = newConfig.replace(pattern, `${key} = ${tomlValue}`);
+      } else {
+        newConfig += `\n${key} = ${tomlValue}`;
+      }
+    }
+    return newConfig;
+  }
+  
   const channelSection = `[channels_config.${channelKey}]\n`;
   let newConfig = existingConfig;
   
