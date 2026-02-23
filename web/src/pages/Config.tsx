@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { getConfig, putConfig } from '@/lib/api';
 import { ProviderSection } from '@/components/config/ProviderSection';
+import { GatewaySection } from '@/components/config/GatewaySection';
 
 export default function Config() {
   const [config, setConfig] = useState('');
@@ -106,6 +107,11 @@ export default function Config() {
       {/* Provider Section */}
       <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
         <ProviderSection config={config} onConfigChange={setConfig} />
+      </div>
+
+      {/* Gateway Section */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
+        <GatewaySection config={config} onConfigChange={setConfig} />
       </div>
 
       {/* Config Editor */}
