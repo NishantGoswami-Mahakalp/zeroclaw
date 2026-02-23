@@ -321,13 +321,23 @@ pub async fn handle_api_config_put(
     };
 
     // Preserve config_path and secrets from the current in-memory config
-    let (config_path, secrets) = {
+    let (config_path, mut secrets) = {
         let current_config = state.config.lock();
         (
             current_config.config_path.clone(),
             current_config.secrets.clone(),
         )
     };
+
+    // If encryption was enabled but there's no secret key file, disable encryption
+    if secrets.encrypt {
+        let secret_key_path = config_path.parent().map(|p| p.join(".secret_key"));
+        if let Some(key_path) = secret_key_path {
+            if !key_path.exists() {
+                secrets.encrypt = false;
+            }
+        }
+    }
 
     // Save to disk (config_path and secrets must be preserved)
     let mut config_to_save = new_config;
