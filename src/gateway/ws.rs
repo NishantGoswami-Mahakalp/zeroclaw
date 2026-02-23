@@ -78,6 +78,26 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
             continue;
         }
 
+        // Parse history from frontend if provided
+        let history: Vec<crate::providers::ChatMessage> =
+            if let Some(history_arr) = parsed.get("history").and_then(|h| h.as_array()) {
+                history_arr
+                    .iter()
+                    .filter_map(|m| {
+                        let role = m.get("role")?.as_str()?;
+                        let content = m.get("content")?.as_str()?;
+                        match role {
+                            "system" => Some(crate::providers::ChatMessage::system(content)),
+                            "user" => Some(crate::providers::ChatMessage::user(content)),
+                            "assistant" => Some(crate::providers::ChatMessage::assistant(content)),
+                            _ => None,
+                        }
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
         // Process message with the LLM provider
         let provider_label = state
             .config
@@ -93,7 +113,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
             "model": state.model,
         }));
 
-        // Simple single-turn chat (no streaming for now — use provider.chat_with_system)
+        // Build system prompt
         let system_prompt = {
             let config_guard = state.config.lock();
             crate::channels::build_system_prompt(
@@ -106,10 +126,10 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
             )
         };
 
-        let messages = vec![
-            crate::providers::ChatMessage::system(system_prompt),
-            crate::providers::ChatMessage::user(&content),
-        ];
+        // Build messages: system prompt + history + current message
+        let mut messages = vec![crate::providers::ChatMessage::system(system_prompt)];
+        messages.extend(history);
+        messages.push(crate::providers::ChatMessage::user(&content));
 
         let multimodal_config = state.config.lock().multimodal.clone();
         let prepared =

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Send, Bot, User, AlertCircle } from 'lucide-react';
+import { Send, Bot, User, AlertCircle, Plus, Trash2 } from 'lucide-react';
 import type { WsMessage } from '@/types/api';
 import { WebSocketClient } from '@/lib/ws';
 
@@ -22,8 +22,25 @@ export default function AgentChat() {
   const inputRef = useRef<HTMLInputElement>(null);
   const pendingContentRef = useRef('');
 
+  const startNewChat = () => {
+    if (wsRef.current) {
+      wsRef.current.clearHistory();
+    }
+    setMessages([]);
+  };
+
   useEffect(() => {
     const ws = new WebSocketClient();
+    wsRef.current = ws;
+
+    // Load existing history from localStorage via ws
+    const history = ws.getHistory();
+    setMessages(history.map((m: any) => ({
+      id: crypto.randomUUID(),
+      role: m.role,
+      content: m.content,
+      timestamp: new Date(),
+    })));
 
     ws.onOpen = () => {
       setConnected(true);
@@ -151,6 +168,29 @@ export default function AgentChat() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+        <h1 className="text-lg font-semibold text-white">Agent Chat</h1>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={startNewChat}
+            className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-lg transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            New Chat
+          </button>
+          {messages.length > 0 && (
+            <button
+              onClick={startNewChat}
+              className="p-2 hover:bg-gray-800 text-gray-400 hover:text-gray-200 rounded-lg transition-colors"
+              title="Clear chat"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Connection status bar */}
       {error && (
         <div className="px-4 py-2 bg-red-900/30 border-b border-red-700 flex items-center gap-2 text-sm text-red-300">

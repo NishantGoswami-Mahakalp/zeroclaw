@@ -74,6 +74,62 @@ const CHANNEL_FIELDS: ChannelFields = {
     { label: 'Phone Number ID', type: 'text', required: false, hint: 'From Meta Business API' },
     { label: 'Verify Token', type: 'text', required: false, hint: 'Your webhook verification token' },
   ],
+  dingtalk: [
+    { label: 'Client ID', type: 'text', required: true, hint: 'App Key from DingTalk Open Platform' },
+    { label: 'Client Secret', type: 'password', required: true, hint: 'App Secret from DingTalk Open Platform' },
+    { label: 'Allowed Users', type: 'text', required: false, hint: 'Comma-separated user IDs (empty = deny all, * = allow all)' },
+  ],
+  signal: [
+    { label: 'Phone Number', type: 'text', required: true, hint: 'Your Signal number (e.g., +1234567890)' },
+    { label: 'Storage Path', type: 'text', required: false, hint: 'Path to Signal DB (default: ~/.local/share/signal-cli)' },
+  ],
+  webhook: [
+    { label: 'URL', type: 'url', required: true, hint: 'Incoming webhook URL' },
+    { label: 'Secret', type: 'password', required: false, hint: 'Webhook secret for verification' },
+  ],
+  email: [
+    { label: 'SMTP Host', type: 'text', required: true, hint: 'e.g., smtp.gmail.com' },
+    { label: 'SMTP Port', type: 'text', required: true, hint: 'e.g., 587' },
+    { label: 'Username', type: 'text', required: true, hint: 'SMTP username' },
+    { label: 'Password', type: 'password', required: true, hint: 'SMTP password or app password' },
+    { label: 'From Address', type: 'text', required: true, hint: 'e.g., bot@example.com' },
+  ],
+  imessage: [
+    { label: 'Apple ID', type: 'text', required: false, hint: 'Apple ID for iCloud (if usingicloud)' },
+    { label: 'Password', type: 'password', required: false, hint: 'App-specific password' },
+  ],
+  qq: [
+    { label: 'Bot ID', type: 'text', required: true, hint: 'QQ bot ID' },
+    { label: 'Token', type: 'password', required: true, hint: 'QQ bot token' },
+  ],
+  feishu: [
+    { label: 'App ID', type: 'text', required: true, hint: 'Feishu/Lark app ID' },
+    { label: 'App Secret', type: 'password', required: true, hint: 'Feishu/Lark app secret' },
+  ],
+  nextcloud_talk: [
+    { label: 'URL', type: 'url', required: true, hint: 'Nextcloud instance URL' },
+    { label: 'Bot User', type: 'text', required: true, hint: 'Bot username' },
+    { label: 'Password', type: 'password', required: true, hint: 'Bot password' },
+  ],
+  linq: [
+    { label: 'API Key', type: 'password', required: true, hint: 'LINQ API key' },
+  ],
+  mattermost: [
+    { label: 'Server URL', type: 'url', required: true, hint: 'Mattermost server URL' },
+    { label: 'Bot Token', type: 'password', required: true, hint: 'Mattermost bot token' },
+    { label: 'Team', type: 'text', required: false, hint: 'Mattermost team name' },
+  ],
+  irc: [
+    { label: 'Server', type: 'text', required: true, hint: 'IRC server (e.g., irc.libera.chat)' },
+    { label: 'Port', type: 'text', required: false, hint: 'Port (default: 6697)' },
+    { label: 'Nickname', type: 'text', required: true, hint: 'Bot nickname' },
+    { label: 'Channel', type: 'text', required: true, hint: 'Channel to join (e.g., #zeroclaw)' },
+    { label: 'Password', type: 'password', required: false, hint: 'Server or channel password' },
+  ],
+  clawdtalk: [
+    { label: 'Server URL', type: 'url', required: true, hint: 'ClawdTalk server URL' },
+    { label: 'API Key', type: 'password', required: true, hint: 'ClawdTalk API key' },
+  ],
 };
 
 const PROVIDER_KEYS = ['anthropic', 'openai', 'google', 'openrouter', 'ollama', 'groq', 'deepseek', 'mistral', 'xai', 'together', 'fireworks', 'perplexity', 'cohere', 'qwen', 'glm', 'moonshot', 'minimax'];

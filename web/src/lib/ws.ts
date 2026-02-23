@@ -1,6 +1,19 @@
 import type { WsMessage } from '../types/api';
 import { getToken } from './auth';
 
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChatSession {
+  id: string;
+  messages: ChatMessage[];
+}
+
+const CHAT_SESSION_KEY = 'zeroclaw_chat_session';
+const MAX_HISTORY_MESSAGES = 50;
+
 export type WsMessageHandler = (msg: WsMessage) => void;
 export type WsOpenHandler = () => void;
 export type WsCloseHandler = (ev: CloseEvent) => void;
@@ -25,6 +38,7 @@ export class WebSocketClient {
   private currentDelay: number;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionallyClosed = false;
+  private sessionId: string;
 
   public onMessage: WsMessageHandler | null = null;
   public onOpen: WsOpenHandler | null = null;
@@ -44,6 +58,55 @@ export class WebSocketClient {
     this.maxReconnectDelay = options.maxReconnectDelay ?? MAX_RECONNECT_DELAY;
     this.autoReconnect = options.autoReconnect ?? true;
     this.currentDelay = this.reconnectDelay;
+    this.sessionId = this.loadSessionId();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Session management
+  // ---------------------------------------------------------------------------
+
+  private loadSessionId(): string {
+    const stored = localStorage.getItem(CHAT_SESSION_KEY);
+    if (stored) {
+      try {
+        const session = JSON.parse(stored) as ChatSession;
+        if (session.id) return session.id;
+      } catch {
+        // Invalid JSON
+      }
+    }
+    return crypto.randomUUID();
+  }
+
+  getHistory(): ChatMessage[] {
+    const stored = localStorage.getItem(CHAT_SESSION_KEY);
+    if (stored) {
+      try {
+        const session = JSON.parse(stored) as ChatSession;
+        return session.messages || [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  saveHistory(messages: ChatMessage[]): void {
+    const trimmed = messages.slice(-MAX_HISTORY_MESSAGES);
+    const session: ChatSession = {
+      id: this.sessionId,
+      messages: trimmed,
+    };
+    localStorage.setItem(CHAT_SESSION_KEY, JSON.stringify(session));
+  }
+
+  clearHistory(): void {
+    this.sessionId = crypto.randomUUID();
+    localStorage.removeItem(CHAT_SESSION_KEY);
+  }
+
+  getSessionId(): string {
+    return this.sessionId;
   }
 
   /** Open the WebSocket connection. */
@@ -64,7 +127,7 @@ export class WebSocketClient {
     this.ws.onmessage = (ev: MessageEvent) => {
       try {
         const msg = JSON.parse(ev.data) as WsMessage;
-        this.onMessage?.(msg);
+        this.handleMessage(msg);
       } catch {
         // Ignore non-JSON frames
       }
@@ -85,7 +148,32 @@ export class WebSocketClient {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket is not connected');
     }
-    this.ws.send(JSON.stringify({ type: 'message', content }));
+
+    const history = this.getHistory();
+    
+    this.ws.send(JSON.stringify({ 
+      type: 'message', 
+      content,
+      history,
+      session_id: this.sessionId,
+    }));
+
+    // Add user message to local history
+    const newHistory = [...history, { role: 'user' as const, content }];
+    this.saveHistory(newHistory);
+  }
+
+  /** Handle incoming message - call this to track responses */
+  handleMessage(msg: WsMessage): void {
+    // Track assistant responses in history
+    if (msg.type === 'done' && msg.full_response) {
+      const history = this.getHistory();
+      const newHistory = [...history, { role: 'assistant' as const, content: msg.full_response }];
+      this.saveHistory(newHistory);
+    }
+    
+    // Also call the user's message handler
+    this.onMessage?.(msg);
   }
 
   /** Close the connection without auto-reconnecting. */
