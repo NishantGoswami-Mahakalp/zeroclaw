@@ -139,6 +139,7 @@ export default function Integrations() {
                   const BadgeIcon = badge.icon;
                   const hasToggle = integration.enabled !== undefined;
                   const isToggling = toggling === integration.name;
+                  const isConfigured = integration.configured;
 
                   return (
                     <div
@@ -166,14 +167,16 @@ export default function Integrations() {
                           <FormToggle
                             checked={integration.enabled ?? false}
                             onChange={(checked) => handleToggle(integration.name, checked)}
-                            disabled={isToggling}
+                            disabled={isToggling || !isConfigured}
                             label={integration.enabled ? 'Enabled' : 'Disabled'}
                             description={
                               isToggling
                                 ? 'Updating...'
-                                : integration.enabled
-                                  ? 'Channel is active and receiving messages'
-                                  : 'Channel is disabled'
+                                : !isConfigured
+                                  ? 'Configure required'
+                                  : integration.enabled
+                                    ? 'Channel is active and receiving messages'
+                                    : 'Channel is disabled'
                             }
                           />
                         </div>

@@ -37,6 +37,7 @@ export interface ToolSpec {
   name: string;
   description: string;
   parameters: any;
+  enabled: boolean;
 }
 
 export interface CronJob {
@@ -55,6 +56,7 @@ export interface Integration {
   category: string;
   status: 'Available' | 'Active' | 'ComingSoon';
   enabled?: boolean;
+  configured: boolean;
 }
 
 export interface DiagResult {

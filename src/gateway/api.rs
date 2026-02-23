@@ -364,19 +364,59 @@ pub async fn handle_api_tools(
         return e.into_response();
     }
 
+    let config = state.config.lock().clone();
+    let disabled_tools = &config.autonomy.disabled_tools;
+
     let tools: Vec<serde_json::Value> = state
         .tools_registry
         .iter()
         .map(|spec| {
+            let enabled = !disabled_tools.contains(&spec.name);
             serde_json::json!({
                 "name": spec.name,
                 "description": spec.description,
                 "parameters": spec.parameters,
+                "enabled": enabled,
             })
         })
         .collect();
 
     Json(serde_json::json!({"tools": tools})).into_response()
+}
+
+/// PUT /api/tools/:name — toggle a tool on/off
+pub async fn handle_api_tool_toggle(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Json(body): Json<ChannelToggleBody>,
+) -> impl IntoResponse {
+    if let Err(e) = require_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let mut config = state.config.lock().clone();
+    let tool_name = name.clone();
+
+    if body.enabled {
+        config.autonomy.disabled_tools.retain(|t| t != &tool_name);
+    } else {
+        if !config.autonomy.disabled_tools.contains(&tool_name) {
+            config.autonomy.disabled_tools.push(tool_name);
+        }
+    }
+
+    if let Err(e) = config.save().await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Failed to save config: {}", e)})),
+        )
+            .into_response();
+    }
+
+    *state.config.lock() = config;
+
+    Json(serde_json::json!({"status": "ok"})).into_response()
 }
 
 /// GET /api/cron — list cron jobs
@@ -513,11 +553,13 @@ pub async fn handle_api_integrations(
         .map(|entry| {
             let status = (entry.status_fn)(&config);
             let enabled = is_channel_enabled(&entry.name, &config);
+            let configured = enabled.is_some();
             let mut obj = serde_json::json!({
                 "name": entry.name,
                 "description": entry.description,
                 "category": entry.category,
                 "status": status,
+                "configured": configured,
             });
             if let Some(enabled_val) = enabled {
                 obj["enabled"] = serde_json::json!(enabled_val);
