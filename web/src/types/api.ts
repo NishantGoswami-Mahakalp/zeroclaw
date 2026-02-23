@@ -54,6 +54,7 @@ export interface Integration {
   description: string;
   category: string;
   status: 'Available' | 'Active' | 'ComingSoon';
+  enabled?: boolean;
 }
 
 export interface DiagResult {

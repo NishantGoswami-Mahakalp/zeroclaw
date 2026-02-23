@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Puzzle, Check, Zap, Clock } from 'lucide-react';
 import type { Integration } from '@/types/api';
-import { getIntegrations } from '@/lib/api';
+import { getIntegrations, toggleChannel } from '@/lib/api';
+import { FormToggle } from '@/components/ui/FormToggle';
 
 function statusBadge(status: Integration['status']) {
   switch (status) {
@@ -31,13 +32,33 @@ export default function Integrations() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>('all');
+  const [toggling, setToggling] = useState<string | null>(null);
 
-  useEffect(() => {
+  const refreshIntegrations = () => {
     getIntegrations()
       .then(setIntegrations)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    refreshIntegrations();
   }, []);
+
+  const handleToggle = async (name: string, enabled: boolean) => {
+    setToggling(name);
+    try {
+      await toggleChannel(name, enabled);
+      setIntegrations((prev) =>
+        prev.map((i) => (i.name === name ? { ...i, enabled } : i))
+      );
+    } catch (err) {
+      console.error('Failed to toggle channel:', err);
+      refreshIntegrations();
+    } finally {
+      setToggling(null);
+    }
+  };
 
   const categories = [
     'all',
@@ -49,7 +70,6 @@ export default function Integrations() {
       ? integrations
       : integrations.filter((i) => i.category === activeCategory);
 
-  // Group by category for display
   const grouped = filtered.reduce<Record<string, Integration[]>>((acc, item) => {
     const key = item.category;
     if (!acc[key]) acc[key] = [];
@@ -77,7 +97,6 @@ export default function Integrations() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <div className="flex items-center gap-2">
         <Puzzle className="h-5 w-5 text-blue-400" />
         <h2 className="text-base font-semibold text-white">
@@ -85,7 +104,6 @@ export default function Integrations() {
         </h2>
       </div>
 
-      {/* Category Filter Tabs */}
       <div className="flex flex-wrap gap-2">
         {categories.map((cat) => (
           <button
@@ -102,7 +120,6 @@ export default function Integrations() {
         ))}
       </div>
 
-      {/* Grouped Integration Cards */}
       {Object.keys(grouped).length === 0 ? (
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-8 text-center">
           <Puzzle className="h-10 w-10 text-gray-600 mx-auto mb-3" />
@@ -120,13 +137,16 @@ export default function Integrations() {
                 {items.map((integration) => {
                   const badge = statusBadge(integration.status);
                   const BadgeIcon = badge.icon;
+                  const hasToggle = integration.enabled !== undefined;
+                  const isToggling = toggling === integration.name;
+
                   return (
                     <div
                       key={integration.name}
                       className="bg-gray-900 rounded-xl border border-gray-800 p-5 hover:border-gray-700 transition-colors"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <h4 className="text-sm font-semibold text-white truncate">
                             {integration.name}
                           </h4>
@@ -141,6 +161,23 @@ export default function Integrations() {
                           {badge.label}
                         </span>
                       </div>
+                      {hasToggle && integration.status !== 'ComingSoon' && (
+                        <div className="mt-4 pt-3 border-t border-gray-800">
+                          <FormToggle
+                            checked={integration.enabled ?? false}
+                            onChange={(checked) => handleToggle(integration.name, checked)}
+                            disabled={isToggling}
+                            label={integration.enabled ? 'Enabled' : 'Disabled'}
+                            description={
+                              isToggling
+                                ? 'Updating...'
+                                : integration.enabled
+                                  ? 'Channel is active and receiving messages'
+                                  : 'Channel is disabled'
+                            }
+                          />
+                        </div>
+                      )}
                     </div>
                   );
                 })}

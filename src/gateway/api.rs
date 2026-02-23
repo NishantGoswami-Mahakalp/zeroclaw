@@ -64,6 +64,11 @@ pub struct CronAddBody {
     pub command: String,
 }
 
+#[derive(Deserialize)]
+pub struct ChannelToggleBody {
+    pub enabled: bool,
+}
+
 // ── Handlers ────────────────────────────────────────────────────
 
 /// GET /api/status — system status overview
@@ -98,6 +103,166 @@ pub async fn handle_api_status(
     });
 
     Json(body).into_response()
+}
+
+/// PUT /api/channels/:name — toggle a channel on/off
+pub async fn handle_api_channel_toggle(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Json(body): Json<ChannelToggleBody>,
+) -> impl IntoResponse {
+    if let Err(e) = require_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let mut config = state.config.lock().clone();
+    let channel_name = name.to_lowercase();
+
+    let result = match channel_name.as_str() {
+        "telegram" => {
+            if body.enabled && config.channels_config.telegram.is_none() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "Telegram not configured. Add bot_token in config first."})),
+                )
+                    .into_response();
+            }
+            if !body.enabled {
+                config.channels_config.telegram = None;
+            }
+            Ok(())
+        }
+        "discord" => {
+            if body.enabled && config.channels_config.discord.is_none() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "Discord not configured. Add bot_token in config first."})),
+                )
+                    .into_response();
+            }
+            if !body.enabled {
+                config.channels_config.discord = None;
+            }
+            Ok(())
+        }
+        "slack" => {
+            if body.enabled && config.channels_config.slack.is_none() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "Slack not configured. Add bot_token in config first."})),
+                )
+                    .into_response();
+            }
+            if !body.enabled {
+                config.channels_config.slack = None;
+            }
+            Ok(())
+        }
+        "whatsapp" => {
+            if body.enabled && config.channels_config.whatsapp.is_none() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "WhatsApp not configured. Add credentials in config first."})),
+                )
+                    .into_response();
+            }
+            if !body.enabled {
+                config.channels_config.whatsapp = None;
+            }
+            Ok(())
+        }
+        "signal" => {
+            if body.enabled && config.channels_config.signal.is_none() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "Signal not configured. Add credentials in config first."})),
+                )
+                    .into_response();
+            }
+            if !body.enabled {
+                config.channels_config.signal = None;
+            }
+            Ok(())
+        }
+        "matrix" => {
+            if body.enabled && config.channels_config.matrix.is_none() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "Matrix not configured. Add credentials in config first."})),
+                )
+                    .into_response();
+            }
+            if !body.enabled {
+                config.channels_config.matrix = None;
+            }
+            Ok(())
+        }
+        "imessage" => {
+            if body.enabled && config.channels_config.imessage.is_none() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "iMessage not configured. Add configuration in config first."})),
+                )
+                    .into_response();
+            }
+            if !body.enabled {
+                config.channels_config.imessage = None;
+            }
+            Ok(())
+        }
+        "email" => {
+            if body.enabled && config.channels_config.email.is_none() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "Email not configured. Add SMTP credentials in config first."})),
+                )
+                    .into_response();
+            }
+            if !body.enabled {
+                config.channels_config.email = None;
+            }
+            Ok(())
+        }
+        "webhook" => {
+            if body.enabled && config.channels_config.webhook.is_none() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "Webhook not configured. Add webhook config first."})),
+                )
+                    .into_response();
+            }
+            if !body.enabled {
+                config.channels_config.webhook = None;
+            }
+            Ok(())
+        }
+        "cli" => {
+            config.channels_config.cli = body.enabled;
+            Ok(())
+        }
+        _ => Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": format!("Unknown channel: {name}")})),
+        )),
+    };
+
+    if let Err(e) = result {
+        return e.into_response();
+    }
+
+    // Save and update config
+    if let Err(e) = config.save().await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Failed to save config: {e}")})),
+        )
+            .into_response();
+    }
+
+    *state.config.lock() = config;
+
+    Json(serde_json::json!({"status": "ok"})).into_response()
 }
 
 /// GET /api/config — current config (api_key masked)
@@ -318,16 +483,46 @@ pub async fn handle_api_integrations(
     let config = state.config.lock().clone();
     let entries = crate::integrations::registry::all_integrations();
 
+    fn is_channel_enabled(name: &str, config: &crate::config::Config) -> Option<bool> {
+        match name.to_lowercase().as_str() {
+            "telegram" => Some(config.channels_config.telegram.is_some()),
+            "discord" => Some(config.channels_config.discord.is_some()),
+            "slack" => Some(config.channels_config.slack.is_some()),
+            "whatsapp" => Some(config.channels_config.whatsapp.is_some()),
+            "signal" => Some(config.channels_config.signal.is_some()),
+            "matrix" => Some(config.channels_config.matrix.is_some()),
+            "imessage" => Some(config.channels_config.imessage.is_some()),
+            "email" => Some(config.channels_config.email.is_some()),
+            "webhook" => Some(config.channels_config.webhook.is_some()),
+            "cli" => Some(config.channels_config.cli),
+            "dingtalk" => Some(config.channels_config.dingtalk.is_some()),
+            "qq" => Some(config.channels_config.qq.is_some()),
+            "lark" | "feishu" => Some(config.channels_config.feishu.is_some()),
+            "nostr" => Some(config.channels_config.nostr.is_some()),
+            "nextcloud talk" => Some(config.channels_config.nextcloud_talk.is_some()),
+            "linq" => Some(config.channels_config.linq.is_some()),
+            "mattermost" => Some(config.channels_config.mattermost.is_some()),
+            "irc" => Some(config.channels_config.irc.is_some()),
+            "clawdtalk" => Some(config.channels_config.clawdtalk.is_some()),
+            _ => None,
+        }
+    }
+
     let integrations: Vec<serde_json::Value> = entries
         .iter()
         .map(|entry| {
             let status = (entry.status_fn)(&config);
-            serde_json::json!({
+            let enabled = is_channel_enabled(&entry.name, &config);
+            let mut obj = serde_json::json!({
                 "name": entry.name,
                 "description": entry.description,
                 "category": entry.category,
                 "status": status,
-            })
+            });
+            if let Some(enabled_val) = enabled {
+                obj["enabled"] = serde_json::json!(enabled_val);
+            }
+            obj
         })
         .collect();
 

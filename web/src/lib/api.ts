@@ -172,6 +172,13 @@ export function getIntegrations(): Promise<Integration[]> {
   );
 }
 
+export function toggleChannel(name: string, enabled: boolean): Promise<void> {
+  return apiFetch<{ status: string }>(`/api/channels/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ enabled }),
+  }).then(() => undefined);
+}
+
 // ---------------------------------------------------------------------------
 // Doctor / Diagnostics
 // ---------------------------------------------------------------------------
