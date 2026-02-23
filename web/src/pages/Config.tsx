@@ -7,6 +7,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { getConfig, putConfig } from '@/lib/api';
+import { ProviderSection } from '@/components/config/ProviderSection';
 
 export default function Config() {
   const [config, setConfig] = useState('');
@@ -101,6 +102,11 @@ export default function Config() {
           <span className="text-sm text-red-300">{error}</span>
         </div>
       )}
+
+      {/* Provider Section */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
+        <ProviderSection config={config} onConfigChange={setConfig} />
+      </div>
 
       {/* Config Editor */}
       <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
