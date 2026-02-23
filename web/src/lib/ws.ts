@@ -9,9 +9,12 @@ export interface ChatMessage {
 export interface ChatSession {
   id: string;
   messages: ChatMessage[];
+  title?: string;
+  createdAt: number;
 }
 
-const CHAT_SESSION_KEY = 'zeroclaw_chat_session';
+const CHAT_SESSIONS_KEY = 'zeroclaw_chat_sessions';
+const CURRENT_SESSION_KEY = 'zeroclaw_current_session';
 const MAX_HISTORY_MESSAGES = 50;
 
 export type WsMessageHandler = (msg: WsMessage) => void;
@@ -58,32 +61,34 @@ export class WebSocketClient {
     this.maxReconnectDelay = options.maxReconnectDelay ?? MAX_RECONNECT_DELAY;
     this.autoReconnect = options.autoReconnect ?? true;
     this.currentDelay = this.reconnectDelay;
-    this.sessionId = this.loadSessionId();
+    this.sessionId = this.loadCurrentSessionId();
   }
 
   // ---------------------------------------------------------------------------
   // Session management
   // ---------------------------------------------------------------------------
 
-  private loadSessionId(): string {
-    const stored = localStorage.getItem(CHAT_SESSION_KEY);
+  private loadCurrentSessionId(): string {
+    const stored = localStorage.getItem(CURRENT_SESSION_KEY);
     if (stored) {
       try {
-        const session = JSON.parse(stored) as ChatSession;
-        if (session.id) return session.id;
+        const id = JSON.parse(stored);
+        if (id && typeof id === 'string') return id;
       } catch {
         // Invalid JSON
       }
     }
-    return crypto.randomUUID();
+    const newId = crypto.randomUUID();
+    localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(newId));
+    return newId;
   }
 
-  getHistory(): ChatMessage[] {
-    const stored = localStorage.getItem(CHAT_SESSION_KEY);
+  getSessions(): ChatSession[] {
+    const stored = localStorage.getItem(CHAT_SESSIONS_KEY);
     if (stored) {
       try {
-        const session = JSON.parse(stored) as ChatSession;
-        return session.messages || [];
+        const sessions = JSON.parse(stored) as ChatSession[];
+        return sessions.sort((a, b) => b.createdAt - a.createdAt);
       } catch {
         return [];
       }
@@ -91,18 +96,64 @@ export class WebSocketClient {
     return [];
   }
 
+  getCurrentSession(): ChatSession | null {
+    const sessions = this.getSessions();
+    return sessions.find(s => s.id === this.sessionId) || null;
+  }
+
+  setCurrentSession(sessionId: string): void {
+    this.sessionId = sessionId;
+    localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(sessionId));
+  }
+
+  getHistory(): ChatMessage[] {
+    const session = this.getCurrentSession();
+    return session?.messages || [];
+  }
+
   saveHistory(messages: ChatMessage[]): void {
     const trimmed = messages.slice(-MAX_HISTORY_MESSAGES);
+    const firstMsg = messages[0];
+    const title = firstMsg?.content 
+      ? firstMsg.content.slice(0, 50) + (firstMsg.content.length > 50 ? '...' : '')
+      : 'New Chat';
+    
+    const sessions = this.getSessions();
+    const existingIndex = sessions.findIndex(s => s.id === this.sessionId);
+    const existingSession = existingIndex >= 0 ? sessions[existingIndex] : null;
+    
     const session: ChatSession = {
       id: this.sessionId,
       messages: trimmed,
+      title,
+      createdAt: existingSession?.createdAt || Date.now(),
     };
-    localStorage.setItem(CHAT_SESSION_KEY, JSON.stringify(session));
+    
+    if (existingIndex >= 0) {
+      sessions[existingIndex] = session;
+    } else {
+      sessions.push(session);
+    }
+    
+    localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions));
   }
 
   clearHistory(): void {
+    const sessions = this.getSessions().filter(s => s.id !== this.sessionId);
+    localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions));
+    
     this.sessionId = crypto.randomUUID();
-    localStorage.removeItem(CHAT_SESSION_KEY);
+    localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(this.sessionId));
+  }
+
+  deleteSession(sessionId: string): void {
+    const sessions = this.getSessions().filter(s => s.id !== sessionId);
+    localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions));
+    
+    if (sessionId === this.sessionId) {
+      this.sessionId = crypto.randomUUID();
+      localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(this.sessionId));
+    }
   }
 
   getSessionId(): string {
@@ -161,6 +212,7 @@ export class WebSocketClient {
     // Add user message to local history
     const newHistory = [...history, { role: 'user' as const, content }];
     this.saveHistory(newHistory);
+    window.dispatchEvent(new Event('zeroclaw-chat-updated'));
   }
 
   /** Handle incoming message - call this to track responses */
@@ -170,6 +222,9 @@ export class WebSocketClient {
       const history = this.getHistory();
       const newHistory = [...history, { role: 'assistant' as const, content: msg.full_response }];
       this.saveHistory(newHistory);
+      
+      // Dispatch event for UI to reload sessions
+      window.dispatchEvent(new Event('zeroclaw-chat-updated'));
     }
     
     // Also call the user's message handler
