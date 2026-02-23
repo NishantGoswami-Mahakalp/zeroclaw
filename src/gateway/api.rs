@@ -764,6 +764,38 @@ pub async fn handle_api_health(
     Json(serde_json::json!({"health": snapshot})).into_response()
 }
 
+/// GET /api/providers/:provider/models — list available models for a provider
+pub async fn handle_api_provider_models(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(provider): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = require_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let models = match provider.to_lowercase().as_str() {
+        "google" | "gemini" => vec![
+            "gemini-2.0-flash",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash",
+            "gemini-2.5-pro-preview",
+            "gemini-2.0-flash-lite",
+        ],
+        "openai" => vec!["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o1-mini"],
+        "anthropic" => vec![
+            "claude-sonnet-4-20250514",
+            "claude-3-5-sonnet-20241022",
+            "claude-3-opus-20240229",
+        ],
+        "minimax" => vec!["MiniMax-M2.5"],
+        "ollama" => vec!["llama3", "mistral", "codellama", "qwen2.5"],
+        _ => vec![],
+    };
+
+    Json(serde_json::json!({ "models": models })).into_response()
+}
+
 // ── Helpers ─────────────────────────────────────────────────────
 
 fn mask_sensitive_fields(toml_str: &str) -> String {
