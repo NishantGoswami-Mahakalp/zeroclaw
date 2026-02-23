@@ -86,15 +86,11 @@ jobs:
           echo "$VPS_SSH_KEY" > /tmp/ssh_key
           chmod 600 /tmp/ssh_key
           
-          echo "=========================================="
-          echo "Deploying from FORK (not upstream)"
-          echo "=========================================="
+          echo "Deploying to VPS..."
           echo "Image: $DOCKER_IMAGE"
-          echo "VPS: $VPS_USER@$VPS_HOST"
-          echo ""
           
           # SSH and deploy
-          ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key ${VPS_USER}@${VPS_HOST} << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key $VPS_USER@$VPS_HOST << 'EOF'
             set -e
             
             echo "=== Pulling custom image ==="
