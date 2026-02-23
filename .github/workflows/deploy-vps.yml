@@ -55,7 +55,6 @@ jobs:
           tags: |
             type=ref,event=branch
             type=sha,prefix=
-            type=raw,value=${{ github.event.inputs.branch || 'main' }},enable={{ github.event.inputs.branch != '' }}
 
       - name: Build and push
         uses: docker/build-push-action@v5
