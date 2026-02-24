@@ -96,6 +96,7 @@ jobs:
             echo "=== Starting new container ==="
             docker run -d \
               --name zeroclaw \
+              --network caddy-net \
               --restart unless-stopped \
               -p 0.0.0.0:42617:42617 \
               -v ~/.zeroclaw:/zeroclaw-data/.zeroclaw \
