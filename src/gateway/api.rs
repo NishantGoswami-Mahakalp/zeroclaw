@@ -982,11 +982,13 @@ pub struct ProviderCreate {
 pub async fn handle_api_providers_list(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(profile_id): Query<Option<String>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     if let Err(e) = require_auth(&state, &headers) {
         return e.into_response();
     }
+
+    let profile_id = params.get("profile_id").cloned();
 
     if let Some(db) = &state.config_db {
         // Get active profile if no profile_id provided
@@ -1149,11 +1151,13 @@ pub struct ChannelCreate {
 pub async fn handle_api_channels_list(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(profile_id): Query<Option<String>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     if let Err(e) = require_auth(&state, &headers) {
         return e.into_response();
     }
+
+    let profile_id = params.get("profile_id").cloned();
 
     if let Some(db) = &state.config_db {
         let pid: Option<String> = if let Some(ref pid) = profile_id {
