@@ -1025,7 +1025,7 @@ pub async fn handle_api_providers_create(
     }
 
     if let Some(db) = &state.config_db {
-        // Use active profile if provided profile_id doesn't exist
+        // Use active profile if provided profile_id doesn't exist or is invalid
         let profile_id = if db.get_profile(&payload.profile_id).ok().flatten().is_some() {
             payload.profile_id.clone()
         } else {
@@ -1033,8 +1033,21 @@ pub async fn handle_api_providers_create(
                 .ok()
                 .flatten()
                 .map(|p| p.id)
-                .unwrap_or_else(|| payload.profile_id.clone())
+                .unwrap_or_else(|| "default".to_string())
         };
+
+        // Ensure default profile exists
+        if db.get_profile(&profile_id).ok().flatten().is_none() {
+            let default_profile = crate::config::db::Profile {
+                id: "default".to_string(),
+                name: "Default".to_string(),
+                description: Some("Default profile".to_string()),
+                is_active: true,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                updated_at: chrono::Utc::now().to_rfc3339(),
+            };
+            let _ = db.create_profile(&default_profile);
+        }
 
         let provider = crate::config::db::Provider {
             id: uuid::Uuid::new_v4().to_string(),
@@ -1212,8 +1225,21 @@ pub async fn handle_api_channels_create(
                 .ok()
                 .flatten()
                 .map(|p| p.id)
-                .unwrap_or_else(|| payload.profile_id.clone())
+                .unwrap_or_else(|| "default".to_string())
         };
+
+        // Ensure default profile exists
+        if db.get_profile(&profile_id).ok().flatten().is_none() {
+            let default_profile = crate::config::db::Profile {
+                id: "default".to_string(),
+                name: "Default".to_string(),
+                description: Some("Default profile".to_string()),
+                is_active: true,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                updated_at: chrono::Utc::now().to_rfc3339(),
+            };
+            let _ = db.create_profile(&default_profile);
+        }
 
         let channel = crate::config::db::Channel {
             id: uuid::Uuid::new_v4().to_string(),
