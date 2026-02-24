@@ -1025,9 +1025,20 @@ pub async fn handle_api_providers_create(
     }
 
     if let Some(db) = &state.config_db {
+        // Use active profile if provided profile_id doesn't exist
+        let profile_id = if db.get_profile(&payload.profile_id).ok().flatten().is_some() {
+            payload.profile_id.clone()
+        } else {
+            db.get_active_profile()
+                .ok()
+                .flatten()
+                .map(|p| p.id)
+                .unwrap_or_else(|| payload.profile_id.clone())
+        };
+
         let provider = crate::config::db::Provider {
             id: uuid::Uuid::new_v4().to_string(),
-            profile_id: payload.profile_id,
+            profile_id,
             name: payload.name,
             api_key: payload.api_key,
             api_url: payload.api_url,
@@ -1193,9 +1204,20 @@ pub async fn handle_api_channels_create(
     }
 
     if let Some(db) = &state.config_db {
+        // Use active profile if provided profile_id doesn't exist
+        let profile_id = if db.get_profile(&payload.profile_id).ok().flatten().is_some() {
+            payload.profile_id.clone()
+        } else {
+            db.get_active_profile()
+                .ok()
+                .flatten()
+                .map(|p| p.id)
+                .unwrap_or_else(|| payload.profile_id.clone())
+        };
+
         let channel = crate::config::db::Channel {
             id: uuid::Uuid::new_v4().to_string(),
-            profile_id: payload.profile_id,
+            profile_id,
             channel_type: payload.channel_type,
             config: payload.config,
             is_enabled: payload.is_enabled.unwrap_or(true),
