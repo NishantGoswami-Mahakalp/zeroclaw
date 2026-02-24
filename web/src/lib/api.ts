@@ -312,7 +312,7 @@ export function getProviders(profileId?: string): Promise<Provider[]> {
   return apiFetch<Provider[]>(`/api/providers${params}`);
 }
 
-export function createProvider(provider: Omit<Provider, 'id' | 'created_at' | 'updated_at'>): Promise<Provider> {
+export function createProvider(provider: Partial<Provider> & { profile_id: string; name: string }): Promise<Provider> {
   return apiFetch<Provider>('/api/providers', {
     method: 'POST',
     body: JSON.stringify(provider),
@@ -351,7 +351,7 @@ export function getChannels(profileId?: string): Promise<Channel[]> {
   return apiFetch<Channel[]>(`/api/channels${params}`);
 }
 
-export function createChannel(channel: Omit<Channel, 'id' | 'created_at' | 'updated_at'>): Promise<Channel> {
+export function createChannel(channel: Partial<Channel> & { profile_id: string; channel_type: string; config: string }): Promise<Channel> {
   return apiFetch<Channel>('/api/channels', {
     method: 'POST',
     body: JSON.stringify(channel),

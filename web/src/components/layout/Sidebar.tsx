@@ -10,6 +10,9 @@ import {
   DollarSign,
   Activity,
   Stethoscope,
+  Server,
+  Cloud,
+  Radio,
 } from 'lucide-react';
 import { t } from '@/lib/i18n';
 
@@ -20,6 +23,9 @@ const navItems = [
   { to: '/cron', icon: Clock, labelKey: 'nav.cron' },
   { to: '/integrations', icon: Puzzle, labelKey: 'nav.integrations' },
   { to: '/memory', icon: Brain, labelKey: 'nav.memory' },
+  { to: '/profiles', icon: Server, labelKey: 'nav.profiles' },
+  { to: '/providers', icon: Cloud, labelKey: 'nav.providers' },
+  { to: '/channels', icon: Radio, labelKey: 'nav.channels' },
   { to: '/config', icon: Settings, labelKey: 'nav.config' },
   { to: '/cost', icon: DollarSign, labelKey: 'nav.cost' },
   { to: '/logs', icon: Activity, labelKey: 'nav.logs' },

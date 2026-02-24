@@ -11,6 +11,9 @@ import Config from './pages/Config';
 import Cost from './pages/Cost';
 import Logs from './pages/Logs';
 import Doctor from './pages/Doctor';
+import Profiles from './pages/Profiles';
+import Providers from './pages/Providers';
+import Channels from './pages/Channels';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { setLocale, type Locale } from './lib/i18n';
 
@@ -112,6 +115,9 @@ function AppContent() {
           <Route path="/integrations" element={<Integrations />} />
           <Route path="/memory" element={<Memory />} />
           <Route path="/config" element={<Config />} />
+          <Route path="/profiles" element={<Profiles />} />
+          <Route path="/providers" element={<Providers />} />
+          <Route path="/channels" element={<Channels />} />
           <Route path="/cost" element={<Cost />} />
           <Route path="/logs" element={<Logs />} />
           <Route path="/doctor" element={<Doctor />} />
