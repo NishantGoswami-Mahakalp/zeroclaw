@@ -133,37 +133,41 @@ fn parse_rsa_public_key(pem: &str) -> Result<Vec<u8>, String> {
 /// Check if Cloudflare Access headers are present in the request.
 pub fn has_cloudflare_access_headers(headers: &axum::http::HeaderMap) -> bool {
     headers
-        .get("cf-access-jwt")
+        .get("cf-access-jwt-assertion")
         .or_else(|| headers.get("cf-access-client-token"))
         .is_some()
         || headers
             .get(axum::http::header::COOKIE)
-            .map(|c| c.to_str().unwrap_or("").contains("CF_Access_JWT"))
+            .map(|c| c.to_str().unwrap_or("").contains("CF_Authorization"))
             .unwrap_or(false)
 }
 
 /// Extract Cloudflare Access JWT from request.
 ///
 /// Checks headers in order:
-/// 1. `CF_Access_JWT` cookie
-/// 2. `CF-Access-Client-Token` header (for service tokens)
+/// 1. `Cf-Access-Jwt-Assertion` header (primary)
+/// 2. `CF_Authorization` cookie (browser)
+/// 3. `CF-Access-Client-Token` header (service tokens)
 pub fn extract_cloudflare_jwt(headers: &axum::http::HeaderMap) -> Option<String> {
+    // 1. Check Cf-Access-Jwt-Assertion header (primary)
+    if let Some(token) = headers.get("cf-access-jwt-assertion") {
+        return token.to_str().ok().map(|s| s.to_string());
+    }
+
+    // 2. Check CF_Authorization cookie
     if let Some(cookie) = headers.get(axum::http::header::COOKIE) {
         if let Ok(cookie_str) = cookie.to_str() {
             for part in cookie_str.split(';') {
                 let part = part.trim();
-                if part.starts_with("CF_Access_JWT=") {
-                    return Some(part.strip_prefix("CF_Access_JWT=")?.to_string());
+                if part.starts_with("CF_Authorization=") {
+                    return Some(part.strip_prefix("CF_Authorization=")?.to_string());
                 }
             }
         }
     }
 
+    // 3. Check CF-Access-Client-Token header
     if let Some(token) = headers.get("cf-access-client-token") {
-        return token.to_str().ok().map(|s| s.to_string());
-    }
-
-    if let Some(token) = headers.get("CF-Access-Client-Token") {
         return token.to_str().ok().map(|s| s.to_string());
     }
 
