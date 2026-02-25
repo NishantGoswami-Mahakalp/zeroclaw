@@ -52,7 +52,7 @@ COPY crates/ crates/
 COPY firmware/ firmware/
 
 # Copy frontend build output from Stage 1
-COPY --from=frontend-builder /app/dist/* ./web/dist/
+COPY --from=frontend-builder /app/dist/ ./web/dist/
 
 RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=zeroclaw-cargo-git,target=/usr/local/cargo/git,sharing=locked \
@@ -81,12 +81,10 @@ EOF
 # ── Stage 3: Runtime ─────────────────────────────────────────
 FROM gcr.io/distroless/cc-debian13:nonroot
 
-# Copy binary and config from builder
+# Copy binary, config, and frontend from builder
 COPY --from=builder /app/zeroclaw /usr/local/bin/zeroclaw
+COPY --chmod=755 --from=builder /app/web /app/web
 COPY --from=builder /zeroclaw-data /zeroclaw-data
-
-# Ensure non-root user can access data
-RUN chmod -R 755 /zeroclaw-data
 
 WORKDIR /
 
