@@ -52,7 +52,7 @@ COPY crates/ crates/
 COPY firmware/ firmware/
 
 # Copy frontend build output from Stage 1
-COPY --from=frontend-builder /app/dist ./web/dist
+COPY --from=frontend-builder /app/dist/* ./web/dist/
 
 RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=zeroclaw-cargo-git,target=/usr/local/cargo/git,sharing=locked \
