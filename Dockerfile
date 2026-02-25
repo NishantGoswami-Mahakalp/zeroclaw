@@ -6,8 +6,9 @@ FROM rust:1.93-slim@sha256:9663b80a1621253d30b146454f903de48f0af925c967be48c8474
 WORKDIR /app
 
 # Install bun for frontend builds
-RUN curl -fsSL https://bun.sh/install | bash && \
-    ln -s /root/.bun/bin/bun /usr/local/bin/bun
+RUN curl -fsSL https://bun.sh/install | bash
+ENV BUN_INSTALL="/root/.bun"
+ENV PATH="$BUN_INSTALL/bin:$PATH"
 
 # Install build dependencies
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -45,7 +46,8 @@ COPY firmware/ firmware/
 
 # Build Rust (build.rs will also build frontend)
 # Set SKIP_FRONTEND_BUILD if frontend was already built and you want to skip rebuild
-ENV ZEROCLAW_SKIP_FRONTEND_BUILD=""
+ENV BUN_INSTALL="/root/.bun"
+ENV PATH="$BUN_INSTALL/bin:$PATH"
 RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=zeroclaw-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=zeroclaw-target,target=/app/target,sharing=locked \
