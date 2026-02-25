@@ -1,28 +1,13 @@
 # syntax=docker/dockerfile:1.7
 
-# ── Stage 1: Frontend Builder ─────────────────────────────────
-FROM oven/bun:1-alpine AS frontend-builder
-
-WORKDIR /app
-
-# Copy package files first for dependency caching
-COPY web/package.json web/bun.lock ./
-
-# Install dependencies with frozen lockfile
-RUN bun install --frozen-lockfile
-
-# Copy source and build
-COPY web/ ./
-RUN bun run build
-
-# Verify build output exists
-RUN test -d dist || (echo "Frontend build failed: dist/ not found" && exit 1)
-RUN test -f dist/index.html || (echo "Frontend build failed: index.html not found" && exit 1)
-
-# ── Stage 2: Rust Builder ─────────────────────────────────────
+# ── Builder Stage (Rust + Frontend) ────────────────────────────────
 FROM rust:1.93-slim@sha256:9663b80a1621253d30b146454f903de48f0af925c967be48c84745537cd35d8b AS builder
 
 WORKDIR /app
+
+# Install bun for frontend builds
+RUN curl -fsSL https://bun.sh/install | bash && \
+    ln -s /root/.bun/bin/bun /usr/local/bin/bun
 
 # Install build dependencies
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -31,7 +16,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# 1. Copy manifests to cache dependencies
+# 1. Copy manifests to cache Rust dependencies
 COPY Cargo.toml Cargo.lock ./
 COPY crates/robot-kit/Cargo.toml crates/robot-kit/Cargo.toml
 # Create dummy targets declared in Cargo.toml so manifest parsing succeeds.
@@ -45,21 +30,31 @@ RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/regist
     cargo build --release --locked
 RUN rm -rf src benches crates/robot-kit/src
 
-# 2. Copy only build-relevant source paths (avoid cache-busting on docs/tests/scripts)
+# 2. Copy frontend package files first for dependency caching
+COPY web/package.json web/bun.lock web/
+RUN bun install --frozen-lockfile
+
+# 3. Copy build.rs and trigger frontend build (runs during cargo build)
+COPY build.rs ./
+
+# 4. Copy only build-relevant source paths (avoid cache-busting on docs/tests/scripts)
 COPY src/ src/
 COPY benches/ benches/
 COPY crates/ crates/
 COPY firmware/ firmware/
 
-# Copy frontend build output from Stage 1
-COPY --from=frontend-builder /app/dist/ ./web/dist/
-
+# Build Rust (build.rs will also build frontend)
+# Set SKIP_FRONTEND_BUILD if frontend was already built and you want to skip rebuild
+ENV ZEROCLAW_SKIP_FRONTEND_BUILD=""
 RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=zeroclaw-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=zeroclaw-target,target=/app/target,sharing=locked \
     cargo build --release --locked && \
     cp target/release/zeroclaw /app/zeroclaw && \
     strip /app/zeroclaw
+
+# Verify frontend was embedded
+RUN test -f web/dist/index.html || (echo "Frontend not embedded in binary" && exit 1)
 
 # Prepare runtime directory structure and default config inline (no extra stage)
 RUN mkdir -p /zeroclaw-data/.zeroclaw /zeroclaw-data/workspace && \
@@ -78,10 +73,10 @@ host = "[::]"
 allow_public_bind = true
 EOF
 
-# ── Stage 3: Runtime ─────────────────────────────────────────
+# ── Runtime Stage ─────────────────────────────────────────────────
 FROM gcr.io/distroless/cc-debian13:nonroot
 
-# Copy binary, config, and frontend from builder
+# Copy binary from builder
 COPY --from=builder /app/zeroclaw /usr/local/bin/zeroclaw
 COPY --chmod=755 --from=builder /app/web /app/web
 COPY --from=builder /zeroclaw-data /zeroclaw-data
