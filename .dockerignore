@@ -64,3 +64,6 @@ LICENSE
 *.profdata
 coverage
 lcov.info
+
+# Frontend build output (built in Docker)
+web/dist/

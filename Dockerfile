@@ -1,6 +1,25 @@
 # syntax=docker/dockerfile:1.7
 
-# ── Stage 1: Build ────────────────────────────────────────────
+# ── Stage 1: Frontend Builder ─────────────────────────────────
+FROM oven/bun:1-alpine AS frontend-builder
+
+WORKDIR /app
+
+# Copy package files first for dependency caching
+COPY web/package.json web/bun.lock ./
+
+# Install dependencies with frozen lockfile
+RUN bun install --frozen-lockfile
+
+# Copy source and build
+COPY web/ ./
+RUN bun run build
+
+# Verify build output exists
+RUN test -d dist || (echo "Frontend build failed: dist/ not found" && exit 1)
+RUN test -f dist/index.html || (echo "Frontend build failed: index.html not found" && exit 1)
+
+# ── Stage 2: Rust Builder ─────────────────────────────────────
 FROM rust:1.93-slim@sha256:9663b80a1621253d30b146454f903de48f0af925c967be48c84745537cd35d8b AS builder
 
 WORKDIR /app
@@ -32,9 +51,8 @@ COPY benches/ benches/
 COPY crates/ crates/
 COPY firmware/ firmware/
 
-# Copy web/dist if it exists, otherwise fail the build
-COPY web/ web/
-RUN test -f web/dist/index.html || (echo "ERROR: Frontend not built. Run 'cd web && npm run build' first" && exit 1)
+# Copy frontend build output from Stage 1
+COPY --from=frontend-builder /app/web/dist ./web/dist
 
 RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=zeroclaw-cargo-git,target=/usr/local/cargo/git,sharing=locked \
@@ -60,58 +78,23 @@ host = "[::]"
 allow_public_bind = true
 EOF
 
-# ── Stage 2: Development Runtime (Debian) ────────────────────
-FROM debian:trixie-slim@sha256:f6e2cfac5cf956ea044b4bd75e6397b4372ad88fe00908045e9a0d21712ae3ba AS dev
+# ── Stage 3: Runtime ─────────────────────────────────────────
+FROM gcr.io/distroless/cc-debian13:nonroot
 
-# Install essential runtime dependencies only (use docker-compose.override.yml for dev tools)
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /zeroclaw-data /zeroclaw-data
-COPY --from=builder /app/zeroclaw /usr/local/bin/zeroclaw
-
-# Overwrite minimal config with DEV template (Ollama defaults)
-COPY dev/config.template.toml /zeroclaw-data/.zeroclaw/config.toml
-RUN chown 65534:65534 /zeroclaw-data/.zeroclaw/config.toml
-
-# Environment setup
-# Use consistent workspace path
-ENV ZEROCLAW_WORKSPACE=/zeroclaw-data/workspace
-ENV HOME=/zeroclaw-data
-# Defaults for local dev (Ollama) - matches config.template.toml
-ENV PROVIDER="ollama"
-ENV ZEROCLAW_MODEL="llama3.2"
-ENV ZEROCLAW_GATEWAY_PORT=42617
-
-# Note: API_KEY is intentionally NOT set here to avoid confusion.
-# It is set in config.toml as the Ollama URL.
-
-WORKDIR /zeroclaw-data
-USER 65534:65534
-EXPOSE 42617
-ENTRYPOINT ["zeroclaw"]
-CMD ["gateway"]
-
-# ── Stage 3: Production Runtime (Distroless) ─────────────────
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:84fcd3c223b144b0cb6edc5ecc75641819842a9679a3a58fd6294bec47532bf7 AS release
-
+# Copy binary and config from builder
 COPY --from=builder /app/zeroclaw /usr/local/bin/zeroclaw
 COPY --from=builder /zeroclaw-data /zeroclaw-data
 
-# Environment setup
-ENV ZEROCLAW_WORKSPACE=/zeroclaw-data/workspace
-ENV HOME=/zeroclaw-data
-# Default provider and model are set in config.toml, not here,
-# so config file edits are not silently overridden
-#ENV PROVIDER=
-ENV ZEROCLAW_GATEWAY_PORT=42617
+# Ensure non-root user can access data
+RUN chmod -R 755 /zeroclaw-data
 
-# API_KEY must be provided at runtime!
+WORKDIR /
 
-WORKDIR /zeroclaw-data
-USER 65534:65534
+# Run as non-root user
+USER nonroot
+
+# Expose gateway port
 EXPOSE 42617
+
 ENTRYPOINT ["zeroclaw"]
 CMD ["gateway"]
