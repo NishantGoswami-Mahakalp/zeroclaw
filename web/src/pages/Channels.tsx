@@ -1,36 +1,49 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Trash2, Edit2, Loader2, MessageSquare, Check } from 'lucide-react';
 import {
   getChannels,
   createChannel,
   updateChannel,
   deleteChannel,
+  getAllChannelSchemas,
   type Channel,
 } from '@/lib/api';
+import type { ChannelSchema, SchemaField } from '@/types/api';
+import { SchemaFormWrapper } from '@/components/schema/SchemaForm';
 
-const CHANNEL_OPTIONS = [
-  { value: 'telegram', label: 'Telegram' },
-  { value: 'discord', label: 'Discord' },
-  { value: 'slack', label: 'Slack' },
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'signal', label: 'Signal' },
-  { value: 'email', label: 'Email' },
-  { value: 'webhook', label: 'Webhook' },
-  { value: 'matrix', label: 'Matrix' },
-  { value: 'irc', label: 'IRC' },
-  { value: 'mattermost', label: 'Mattermost' },
-  { value: 'feishu', label: 'Feishu/Lark' },
-  { value: 'dingtalk', label: 'DingTalk' },
-  { value: 'qq', label: 'QQ' },
-  { value: 'nostr', label: 'Nostr' },
-  { value: 'imessage', label: 'iMessage' },
-  { value: 'nextcloud_talk', label: 'Nextcloud Talk' },
-  { value: 'linq', label: 'LINQ' },
-  { value: 'clawdtalk', label: 'ClawdTalk' },
-];
+interface ChannelTypeOption {
+  value: string;
+  label: string;
+}
+
+function getChannelTypes(): ChannelTypeOption[] {
+  return [
+    { value: 'cli', label: 'CLI' },
+    { value: 'telegram', label: 'Telegram' },
+    { value: 'discord', label: 'Discord' },
+    { value: 'slack', label: 'Slack' },
+    { value: 'mattermost', label: 'Mattermost' },
+    { value: 'webhook', label: 'Webhook' },
+    { value: 'imessage', label: 'iMessage' },
+    { value: 'matrix', label: 'Matrix' },
+    { value: 'signal', label: 'Signal' },
+    { value: 'whatsapp', label: 'WhatsApp' },
+    { value: 'linq', label: 'LINQ' },
+    { value: 'nextcloud_talk', label: 'Nextcloud Talk' },
+    { value: 'irc', label: 'IRC' },
+    { value: 'lark', label: 'Lark' },
+    { value: 'feishu', label: 'Feishu' },
+    { value: 'dingtalk', label: 'DingTalk' },
+    { value: 'qq', label: 'QQ' },
+    { value: 'nostr', label: 'Nostr' },
+    { value: 'clawdtalk', label: 'ClawdTalk' },
+    { value: 'email', label: 'Email' },
+  ];
+}
 
 export default function Channels() {
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [channelTypes, setChannelTypes] = useState<ChannelTypeOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -38,12 +51,39 @@ export default function Channels() {
   const [error, setError] = useState<string | null>(null);
 
   const [channelType, setChannelType] = useState('');
-  const [config, setConfig] = useState('');
   const [isEnabled, setIsEnabled] = useState(true);
+  const [formValues, setFormValues] = useState<Record<string, unknown>>({});
+
+  const [schemaLoading, setSchemaLoading] = useState(false);
+  const [currentSchema, setCurrentSchema] = useState<ChannelSchema | null>(null);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
 
   useEffect(() => {
     loadChannels();
+    loadChannelTypes();
   }, []);
+
+  const channelTypesList = useMemo(() => {
+    if (channelTypes.length > 0) {
+      return channelTypes;
+    }
+    return getChannelTypes();
+  }, [channelTypes]);
+
+  async function loadChannelTypes() {
+    try {
+      const data = await getAllChannelSchemas();
+      if (data.channels && data.channels.length > 0) {
+        const types = data.channels.map((c: ChannelSchema) => ({
+          value: c.type,
+          label: c.name || c.type,
+        }));
+        setChannelTypes(types);
+      }
+    } catch (e) {
+      console.error('Failed to load channel types:', e);
+    }
+  }
 
   async function loadChannels() {
     try {
@@ -56,24 +96,64 @@ export default function Channels() {
     }
   }
 
+  const fetchSchema = useCallback(async (type: string) => {
+    if (!type) {
+      setCurrentSchema(null);
+      return;
+    }
+
+    setSchemaLoading(true);
+    setSchemaError(null);
+
+    try {
+      const schema = await getAllChannelSchemas();
+      const found = schema.channels?.find((c: ChannelSchema) => c.type === type);
+      if (found) {
+        setCurrentSchema(found);
+        setFormValues({});
+      } else {
+        setSchemaError(`No schema found for channel type: ${type}`);
+        setCurrentSchema(null);
+      }
+    } catch (e) {
+      setSchemaError(e instanceof Error ? e.message : 'Failed to load schema');
+      setCurrentSchema(null);
+    } finally {
+      setSchemaLoading(false);
+    }
+  }, []);
+
+  function handleChannelTypeChange(type: string) {
+    setChannelType(type);
+    setFormValues({});
+    if (type) {
+      fetchSchema(type);
+    } else {
+      setCurrentSchema(null);
+    }
+  }
+
   function resetForm() {
     setChannelType('');
-    setConfig('');
+    setCurrentSchema(null);
+    setFormValues({});
     setIsEnabled(true);
     setShowForm(false);
     setEditingId(null);
+    setSchemaError(null);
   }
 
-  async function handleSubmit() {
+  async function handleSubmit(values: Record<string, unknown>) {
     if (!channelType.trim()) return;
     setSaving(true);
     setError(null);
 
     try {
+      const configJson = JSON.stringify(values, null, 2);
       const channelData = {
         profile_id: 'default',
         channel_type: channelType.trim(),
-        config: config.trim() || '{}',
+        config: configJson,
         is_enabled: isEnabled,
       };
 
@@ -94,10 +174,18 @@ export default function Channels() {
 
   function startEdit(channel: Channel) {
     setChannelType(channel.channel_type);
-    setConfig(channel.config);
     setIsEnabled(channel.is_enabled);
     setEditingId(channel.id);
     setShowForm(true);
+
+    try {
+      const parsed = JSON.parse(channel.config || '{}');
+      setFormValues(parsed);
+    } catch {
+      setFormValues({});
+    }
+
+    fetchSchema(channel.channel_type);
   }
 
   async function handleDelete(id: string) {
@@ -157,12 +245,12 @@ export default function Channels() {
         </div>
       )}
 
-      {/* Add/Edit form */}
       {showForm && (
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
           <h2 className="text-lg font-semibold text-white mb-4">
             {editingId ? 'Edit Channel' : 'Add New Channel'}
           </h2>
+
           <div className="grid gap-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -171,12 +259,12 @@ export default function Channels() {
                 </label>
                 <select
                   value={channelType}
-                  onChange={(e) => setChannelType(e.target.value)}
+                  onChange={(e) => handleChannelTypeChange(e.target.value)}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={!!editingId}
                 >
                   <option value="">Select channel...</option>
-                  {CHANNEL_OPTIONS.map((opt) => (
+                  {channelTypesList.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>
@@ -195,39 +283,58 @@ export default function Channels() {
                 </label>
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
-                Configuration (JSON)
-              </label>
-              <textarea
-                value={config}
-                onChange={(e) => setConfig(e.target.value)}
-                placeholder='{"bot_token": "xxx", "allowed_users": ["*"]}'
-                rows={4}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={handleSubmit}
-                disabled={saving || !channelType.trim()}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg transition-colors"
-              >
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                {editingId ? 'Update' : 'Add'} Channel
-              </button>
-              <button
-                onClick={resetForm}
-                className="text-gray-400 hover:text-white px-4 py-2 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
+
+            {schemaLoading && (
+              <div className="flex items-center gap-2 text-gray-400 py-4">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading schema...
+              </div>
+            )}
+
+            {schemaError && (
+              <div className="bg-red-900/20 border border-red-800 rounded-lg p-3 text-red-400 text-sm">
+                {schemaError}
+              </div>
+            )}
+
+            {currentSchema && !schemaLoading && (
+              <div className="space-y-4">
+                {currentSchema.description && (
+                  <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-3 text-blue-300 text-sm">
+                    {currentSchema.description}
+                  </div>
+                )}
+
+                <div className="text-sm text-gray-400">
+                  <span className="font-medium text-gray-300">Required fields: </span>
+                  {currentSchema.fields
+                    .filter((f: SchemaField) => f.required)
+                    .map((f: SchemaField) => f.name.replace(/_/g, ' '))
+                    .join(', ') || 'None'}
+                </div>
+
+                <SchemaFormWrapper
+                  schema={currentSchema}
+                  initialValues={formValues}
+                  onSubmit={handleSubmit}
+                  onCancel={resetForm}
+                  loading={saving}
+                  disabled={saving}
+                  submitLabel={editingId ? 'Update Channel' : 'Add Channel'}
+                  cancelLabel="Cancel"
+                />
+              </div>
+            )}
+
+            {!currentSchema && !schemaLoading && channelType && (
+              <div className="text-gray-500 text-sm py-4">
+                No schema available for this channel type.
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Channel list */}
       <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
         <h2 className="text-lg font-semibold text-white mb-4">Configured Channels</h2>
         {channels.length === 0 ? (
@@ -247,7 +354,7 @@ export default function Channels() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-white">
-                        {CHANNEL_OPTIONS.find((c) => c.value === channel.channel_type)?.label ||
+                        {channelTypesList.find((c) => c.value === channel.channel_type)?.label ||
                           channel.channel_type}
                       </h3>
                     </div>
