@@ -1,5 +1,8 @@
+pub mod db;
 pub mod schema;
 pub mod traits;
+
+pub use db::ConfigDatabase;
 
 #[allow(unused_imports)]
 pub use schema::{

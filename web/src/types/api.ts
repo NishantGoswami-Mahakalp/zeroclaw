@@ -11,6 +11,13 @@ export interface StatusResponse {
   health: HealthSnapshot;
 }
 
+export interface HealthResponse {
+  status: string;
+  paired: boolean;
+  require_pairing: boolean;
+  runtime: HealthSnapshot;
+}
+
 export interface HealthSnapshot {
   pid: number;
   updated_at: string;
@@ -30,6 +37,7 @@ export interface ToolSpec {
   name: string;
   description: string;
   parameters: any;
+  enabled: boolean;
 }
 
 export interface CronJob {
@@ -47,6 +55,8 @@ export interface Integration {
   description: string;
   category: string;
   status: 'Available' | 'Active' | 'ComingSoon';
+  enabled?: boolean;
+  configured: boolean;
 }
 
 export interface DiagResult {
@@ -102,4 +112,34 @@ export interface WsMessage {
   args?: any;
   output?: string;
   message?: string;
+}
+
+export type SchemaFieldType = 'string' | 'password' | 'number' | 'boolean' | 'array' | 'select';
+
+export interface SchemaField {
+  name: string;
+  type: SchemaFieldType;
+  required: boolean;
+  hint: string;
+  example?: string;
+  options?: { value: string; label: string }[];
+}
+
+export interface Schema {
+  type: string;
+  name: string;
+  description: string;
+  fields: SchemaField[];
+}
+
+export interface ChannelSchema extends Schema {
+  type: string;
+}
+
+export interface ProviderSchema extends Schema {
+  type: string;
+}
+
+export interface SchemaListResponse<T extends Schema = Schema> {
+  types: T[];
 }

@@ -1,7 +1,6 @@
 name: Deploy to VPS
 
 on:
-  # Manual deployment only - you control when to deploy
   workflow_dispatch:
     inputs:
       environment:
@@ -20,7 +19,6 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   build:
@@ -42,7 +40,7 @@ jobs:
       - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
@@ -50,8 +48,10 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
-          tags: type=sha
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -59,6 +59,7 @@ jobs:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -77,17 +78,12 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            IMAGE=$(echo "${{ needs.build.outputs.image }}" | head -n1)
-            echo "Image: $IMAGE"
-            echo "=========================================="
-            echo "Deploying from FORK (not upstream)"
-            echo "=========================================="
-            echo "Image: $IMAGE"
-            echo "VPS: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
-            echo ""
+            IMAGE=${{ needs.build.outputs.image }}
+            echo "=== Creating network if needed ==="
+            docker network create zeroclaw-net 2>/dev/null || true
             
-            echo "=== Pulling custom image ==="
-            docker pull "$IMAGE" || exit 1
+            echo "=== Pulling custom image: $IMAGE ==="
+            docker pull $IMAGE || exit 1
             
             echo "=== Stopping existing container ==="
             docker stop zeroclaw 2>/dev/null || true
@@ -96,16 +92,13 @@ jobs:
             echo "=== Starting new container ==="
             docker run -d \
               --name zeroclaw \
-              --network caddy-net \
+              --network zeroclaw-net \
               --restart unless-stopped \
-              -p 0.0.0.0:42617:42617 \
+              -p 42617:42617 \
               -v ~/.zeroclaw:/zeroclaw-data/.zeroclaw \
               -v zeroclaw-data:/zeroclaw-data \
-              -e API_KEY \
-              -e PROVIDER=minimax \
-              -e MODEL=MiniMax-M2.5 \
               -e ZEROCLAW_ALLOW_PUBLIC_BIND=true \
-              "$IMAGE"
+              $IMAGE
             
             echo "=== Checking health ==="
             sleep 5

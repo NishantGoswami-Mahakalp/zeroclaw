@@ -8,6 +8,8 @@ import type {
   CostSummary,
   CliTool,
   HealthSnapshot,
+  ChannelSchema,
+  ProviderSchema,
 } from '../types/api';
 import { clearToken, getToken, setToken } from './auth';
 
@@ -134,6 +136,13 @@ export function getTools(): Promise<ToolSpec[]> {
   );
 }
 
+export function toggleTool(name: string, enabled: boolean): Promise<void> {
+  return apiFetch<{ status: string }>(`/api/tools/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ enabled }),
+  }).then(() => undefined);
+}
+
 // ---------------------------------------------------------------------------
 // Cron
 // ---------------------------------------------------------------------------
@@ -172,12 +181,21 @@ export function getIntegrations(): Promise<Integration[]> {
   );
 }
 
+export function toggleChannel(name: string, enabled: boolean): Promise<void> {
+  return apiFetch<{ status: string }>(`/api/channels/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ enabled }),
+  }).then(() => undefined);
+}
+
 // ---------------------------------------------------------------------------
 // Doctor / Diagnostics
 // ---------------------------------------------------------------------------
 
 export function runDoctor(): Promise<DiagResult[]> {
-  return apiFetch<DiagResult[] | { results: DiagResult[]; summary?: unknown }>('/api/doctor').then(
+  return apiFetch<DiagResult[] | { results: DiagResult[]; summary?: unknown }>('/api/doctor', {
+    method: 'POST',
+  }).then(
     (data) => (Array.isArray(data) ? data : data.results),
   );
 }
@@ -234,4 +252,143 @@ export function getCliTools(): Promise<CliTool[]> {
   return apiFetch<CliTool[] | { cli_tools: CliTool[] }>('/api/cli-tools').then((data) =>
     unwrapField(data, 'cli_tools'),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Profiles (Database-backed config)
+// ---------------------------------------------------------------------------
+
+export interface Profile {
+  id: string;
+  name: string;
+  description?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export function getProfiles(): Promise<Profile[]> {
+  return apiFetch<Profile[]>('/api/profiles');
+}
+
+export function createProfile(name: string, description?: string): Promise<Profile> {
+  return apiFetch<Profile>('/api/profiles', {
+    method: 'POST',
+    body: JSON.stringify({ name, description }),
+  });
+}
+
+export function activateProfile(id: string): Promise<void> {
+  return apiFetch<void>(`/api/profiles/${id}/activate`, {
+    method: 'POST',
+  });
+}
+
+export function deleteProfile(id: string): Promise<void> {
+  return apiFetch<void>(`/api/profiles/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Providers (Database-backed config)
+// ---------------------------------------------------------------------------
+
+export interface Provider {
+  id: string;
+  profile_id: string;
+  name: string;
+  api_key?: string;
+  api_url?: string;
+  default_model?: string;
+  is_enabled: boolean;
+  is_default: boolean;
+  priority: number;
+  metadata?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function getProviders(profileId?: string): Promise<Provider[]> {
+  const params = profileId ? `?profile_id=${profileId}` : '';
+  return apiFetch<Provider[]>(`/api/providers${params}`);
+}
+
+export function createProvider(provider: Partial<Provider> & { profile_id: string; name: string }): Promise<Provider> {
+  return apiFetch<Provider>('/api/providers', {
+    method: 'POST',
+    body: JSON.stringify(provider),
+  });
+}
+
+export function updateProvider(id: string, provider: Partial<Provider>): Promise<Provider> {
+  return apiFetch<Provider>(`/api/providers/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(provider),
+  });
+}
+
+export function deleteProvider(id: string): Promise<void> {
+  return apiFetch<void>(`/api/providers/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Channels (Database-backed config)
+// ---------------------------------------------------------------------------
+
+export interface Channel {
+  id: string;
+  profile_id: string;
+  channel_type: string;
+  config: string;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export function getChannels(profileId?: string): Promise<Channel[]> {
+  const params = profileId ? `?profile_id=${profileId}` : '';
+  return apiFetch<Channel[]>(`/api/channels${params}`);
+}
+
+export function createChannel(channel: Partial<Channel> & { profile_id: string; channel_type: string; config: string }): Promise<Channel> {
+  return apiFetch<Channel>('/api/channels', {
+    method: 'POST',
+    body: JSON.stringify(channel),
+  });
+}
+
+export function updateChannel(id: string, channel: Partial<Channel>): Promise<Channel> {
+  return apiFetch<Channel>(`/api/channels/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(channel),
+  });
+}
+
+export function deleteChannel(id: string): Promise<void> {
+  return apiFetch<void>(`/api/channels/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Schema API
+// ---------------------------------------------------------------------------
+
+export function getChannelSchema(type: string): Promise<ChannelSchema> {
+  return apiFetch<ChannelSchema>(`/api/schema/channels/${encodeURIComponent(type)}`);
+}
+
+export function getAllChannelSchemas(): Promise<{ channels: ChannelSchema[] }> {
+  return apiFetch<{ channels: ChannelSchema[] }>('/api/schema/channels');
+}
+
+export function getProviderSchema(type: string): Promise<ProviderSchema> {
+  return apiFetch<ProviderSchema>(`/api/schema/providers/${encodeURIComponent(type)}`);
+}
+
+export function getAllProviderSchemas(): Promise<{ providers: ProviderSchema[] }> {
+  return apiFetch<{ providers: ProviderSchema[] }>('/api/schema/providers');
 }

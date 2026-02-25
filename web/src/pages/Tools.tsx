@@ -8,7 +8,8 @@ import {
   Package,
 } from 'lucide-react';
 import type { ToolSpec, CliTool } from '@/types/api';
-import { getTools, getCliTools } from '@/lib/api';
+import { getTools, getCliTools, toggleTool } from '@/lib/api';
+import { FormToggle } from '@/components/ui/FormToggle';
 
 export default function Tools() {
   const [tools, setTools] = useState<ToolSpec[]>([]);
@@ -17,6 +18,7 @@ export default function Tools() {
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [togglingTool, setTogglingTool] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([getTools(), getCliTools()])
@@ -27,6 +29,20 @@ export default function Tools() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
+
+  const handleToggle = async (name: string, enabled: boolean) => {
+    setTogglingTool(name);
+    try {
+      await toggleTool(name, enabled);
+      setTools((prev) =>
+        prev.map((t) => (t.name === name ? { ...t, enabled } : t)),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to toggle tool');
+    } finally {
+      setTogglingTool(null);
+    }
+  };
 
   const filtered = tools.filter(
     (t) =>
@@ -116,14 +132,33 @@ export default function Tools() {
                     </p>
                   </button>
 
-                  {isExpanded && tool.parameters && (
+                  {isExpanded && (
                     <div className="border-t border-gray-800 p-4">
-                      <p className="text-xs text-gray-500 mb-2 font-medium uppercase tracking-wider">
-                        Parameter Schema
-                      </p>
-                      <pre className="text-xs text-gray-300 bg-gray-950 rounded-lg p-3 overflow-x-auto max-h-64 overflow-y-auto">
-                        {JSON.stringify(tool.parameters, null, 2)}
-                      </pre>
+                      <div className="mb-4">
+                        <FormToggle
+                          checked={tool.enabled}
+                          onChange={(checked) => handleToggle(tool.name, checked)}
+                          disabled={togglingTool === tool.name}
+                          label={tool.enabled ? 'Enabled' : 'Disabled'}
+                          description={
+                            togglingTool === tool.name
+                              ? 'Updating...'
+                              : tool.enabled
+                                ? 'Tool is active and available to agents'
+                                : 'Tool is disabled'
+                          }
+                        />
+                      </div>
+                      {tool.parameters && (
+                        <>
+                          <p className="text-xs text-gray-500 mb-2 font-medium uppercase tracking-wider">
+                            Parameter Schema
+                          </p>
+                          <pre className="text-xs text-gray-300 bg-gray-950 rounded-lg p-3 overflow-x-auto max-h-64 overflow-y-auto">
+                            {JSON.stringify(tool.parameters, null, 2)}
+                          </pre>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>

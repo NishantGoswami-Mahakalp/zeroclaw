@@ -13,7 +13,7 @@ pub mod static_files;
 pub mod ws;
 
 use crate::channels::{Channel, LinqChannel, NextcloudTalkChannel, SendMessage, WhatsAppChannel};
-use crate::config::Config;
+use crate::config::{Config, ConfigDatabase};
 use crate::cost::CostTracker;
 use crate::memory::{self, Memory, MemoryCategory};
 use crate::providers::{self, ChatMessage, Provider};
@@ -275,6 +275,7 @@ fn normalize_max_keys(configured: usize, fallback: usize) -> usize {
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Mutex<Config>>,
+    pub config_db: Option<Arc<ConfigDatabase>>,
     pub provider: Arc<dyn Provider>,
     pub model: String,
     pub temperature: f64,
@@ -318,6 +319,21 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         );
     }
     let config_state = Arc::new(Mutex::new(config.clone()));
+
+    // Initialize config database
+    let config_db = match ConfigDatabase::new(&config.workspace_dir) {
+        Ok(db) => {
+            tracing::info!("Config database initialized at {:?}", config.workspace_dir);
+            Some(Arc::new(db))
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Failed to initialize config database: {}. Config UI will be limited.",
+                e
+            );
+            None
+        }
+    };
 
     // ── Hooks ──────────────────────────────────────────────────────
     let hooks: Option<std::sync::Arc<crate::hooks::HookRunner>> = if config.hooks.enabled {
@@ -600,6 +616,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
 
     let state = AppState {
         config: config_state,
+        config_db: config_db.clone(),
         provider,
         model,
         temperature,
@@ -641,7 +658,44 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         // ── Web Dashboard API routes ──
         .route("/api/status", get(api::handle_api_status))
         .route("/api/config", get(api::handle_api_config_get))
+        .route("/api/config/schema", get(api::handle_api_config_schema))
+        // Profiles API
+        .route("/api/profiles", get(api::handle_api_profiles_list))
+        .route("/api/profiles", post(api::handle_api_profiles_create))
+        .route(
+            "/api/profiles/{id}/activate",
+            post(api::handle_api_profiles_activate),
+        )
+        .route(
+            "/api/profiles/{id}",
+            delete(api::handle_api_profiles_delete),
+        )
+        // Providers API
+        .route("/api/providers", get(api::handle_api_providers_list))
+        .route("/api/providers", post(api::handle_api_providers_create))
+        .route("/api/providers/{id}", put(api::handle_api_providers_update))
+        .route(
+            "/api/providers/{id}",
+            delete(api::handle_api_providers_delete),
+        )
+        // Channels API
+        .route("/api/channels", get(api::handle_api_channels_list))
+        .route("/api/channels", post(api::handle_api_channels_create))
+        .route(
+            "/api/channels/{name}/toggle",
+            put(api::handle_api_channel_toggle),
+        )
+        .route("/api/channels/{id}", put(api::handle_api_channels_update))
+        .route(
+            "/api/channels/{id}",
+            delete(api::handle_api_channels_delete),
+        )
+        .route(
+            "/api/providers/{provider}/models",
+            get(api::handle_api_provider_models),
+        )
         .route("/api/tools", get(api::handle_api_tools))
+        .route("/api/tools/{name}", put(api::handle_api_tool_toggle))
         .route("/api/cron", get(api::handle_api_cron_list))
         .route("/api/cron", post(api::handle_api_cron_add))
         .route("/api/cron/{id}", delete(api::handle_api_cron_delete))
@@ -653,6 +707,24 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/api/cost", get(api::handle_api_cost))
         .route("/api/cli-tools", get(api::handle_api_cli_tools))
         .route("/api/health", get(api::handle_api_health))
+        // ── Provider Schema API ──
+        .route(
+            "/api/schema/providers",
+            get(api::handle_api_schema_providers_list),
+        )
+        .route(
+            "/api/schema/providers/{type}",
+            get(api::handle_api_schema_provider_get),
+        )
+        // ── Channel Schema API ──
+        .route(
+            "/api/schema/channels",
+            get(api::handle_api_schema_channels_list),
+        )
+        .route(
+            "/api/schema/channels/{type}",
+            get(api::handle_api_schema_channel_get),
+        )
         // ── SSE event stream ──
         .route("/api/events", get(sse::handle_sse_events))
         // ── WebSocket agent chat ──
@@ -689,6 +761,7 @@ async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
     let body = serde_json::json!({
         "status": "ok",
         "paired": state.pairing.is_paired(),
+        "require_pairing": state.pairing.require_pairing(),
         "runtime": crate::health::snapshot_json(),
     });
     Json(body)
@@ -1456,6 +1529,7 @@ mod tests {
     async fn metrics_endpoint_returns_hint_when_prometheus_is_disabled() {
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
+            config_db: None,
             provider: Arc::new(MockProvider::default()),
             model: "test-model".into(),
             temperature: 0.0,
@@ -1504,6 +1578,7 @@ mod tests {
         let observer: Arc<dyn crate::observability::Observer> = prom;
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
+            config_db: None,
             provider: Arc::new(MockProvider::default()),
             model: "test-model".into(),
             temperature: 0.0,
@@ -1886,6 +1961,7 @@ mod tests {
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            config_db: None,
             tools_registry: Arc::new(Vec::new()),
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
@@ -1949,6 +2025,7 @@ mod tests {
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            config_db: None,
             tools_registry: Arc::new(Vec::new()),
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
@@ -2024,6 +2101,7 @@ mod tests {
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            config_db: None,
             tools_registry: Arc::new(Vec::new()),
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
@@ -2071,6 +2149,7 @@ mod tests {
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            config_db: None,
             tools_registry: Arc::new(Vec::new()),
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
@@ -2123,6 +2202,7 @@ mod tests {
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            config_db: None,
             tools_registry: Arc::new(Vec::new()),
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
@@ -2180,6 +2260,7 @@ mod tests {
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            config_db: None,
             tools_registry: Arc::new(Vec::new()),
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
@@ -2233,6 +2314,7 @@ mod tests {
             nextcloud_talk: Some(channel),
             nextcloud_talk_webhook_secret: Some(Arc::from(secret)),
             observer: Arc::new(crate::observability::NoopObserver),
+            config_db: None,
             tools_registry: Arc::new(Vec::new()),
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
