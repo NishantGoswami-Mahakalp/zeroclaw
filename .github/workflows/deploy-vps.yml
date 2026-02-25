@@ -97,6 +97,7 @@ jobs:
               -v ~/.zeroclaw:/zeroclaw-data/.zeroclaw \
               -v zeroclaw-data:/zeroclaw-data \
               -e ZEROCLAW_ALLOW_PUBLIC_BIND=true \
+              -e ZEROCLAW_GATEWAY_HOST="[::]" \
               $IMAGE
             
             echo "=== Checking health ==="
