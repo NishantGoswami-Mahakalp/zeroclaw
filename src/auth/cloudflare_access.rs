@@ -149,18 +149,52 @@ pub fn has_cloudflare_access_headers(headers: &axum::http::HeaderMap) -> bool {
 /// 2. `CF_Authorization` cookie (browser)
 /// 3. `CF-Access-Client-Token` header (service tokens)
 pub fn extract_cloudflare_jwt(headers: &axum::http::HeaderMap) -> Option<String> {
-    // 1. Check Cf-Access-Jwt-Assertion header (primary)
-    if let Some(token) = headers.get("cf-access-jwt-assertion") {
-        return token.to_str().ok().map(|s| s.to_string());
+    // 1. Check Cf-Access-Jwt-Assertion header (primary) - case insensitive
+    for (name, value) in headers.iter() {
+        if name.as_str().eq_ignore_ascii_case("cf-access-jwt-assertion") {
+            return value.to_str().ok().map(|s| s.to_string());
+        }
     }
 
-    // 2. Check CF_Authorization cookie
+    // 2. Check CF_Access_JWT cookie (standard Cloudflare Access cookie)
     if let Some(cookie) = headers.get(axum::http::header::COOKIE) {
         if let Ok(cookie_str) = cookie.to_str() {
             for part in cookie_str.split(';') {
                 let part = part.trim();
-                if part.starts_with("CF_Authorization=") {
-                    return Some(part.strip_prefix("CF_Authorization=")?.to_string());
+                if part.starts_with("CF_Access_JWT=") || part.starts_with("CF_Authorization=") {
+                    let key = if part.starts_with("CF_Access_JWT=") {
+                        "CF_Access_JWT="
+                    } else {
+                        "CF_Authorization="
+                    };
+                    return Some(part.strip_prefix(key)?.to_string());
+                }
+            }
+        }
+    }
+
+    // 3. Check CF-Access-Client-Token header (service tokens)
+    for (name, value) in headers.iter() {
+        if name.as_str().eq_ignore_ascii_case("cf-access-client-token") {
+            return value.to_str().ok().map(|s| s.to_string());
+        }
+    }
+
+    None
+}
+
+    // 2. Check CF_Access_JWT cookie (standard Cloudflare Access cookie)
+    if let Some(cookie) = headers.get(axum::http::header::COOKIE) {
+        if let Ok(cookie_str) = cookie.to_str() {
+            for part in cookie_str.split(';') {
+                let part = part.trim();
+                if part.starts_with("CF_Access_JWT=") || part.starts_with("CF_Authorization=") {
+                    let key = if part.starts_with("CF_Access_JWT=") {
+                        "CF_Access_JWT="
+                    } else {
+                        "CF_Authorization="
+                    };
+                    return Some(part.strip_prefix(key)?.to_string());
                 }
             }
         }
