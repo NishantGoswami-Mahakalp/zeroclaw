@@ -165,7 +165,9 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
             description: "200+ models, 1 API key",
             category: IntegrationCategory::AiModel,
             status_fn: |c| {
-                if c.default_provider.as_deref() == Some("openrouter") && c.api_key.is_some() {
+                if c.default_provider.as_deref() == Some("openrouter")
+                    && c.api_key.as_deref().is_some_and(|k| !k.trim().is_empty())
+                {
                     IntegrationStatus::Active
                 } else {
                     IntegrationStatus::Available
