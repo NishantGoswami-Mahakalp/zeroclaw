@@ -256,21 +256,56 @@ function parseCurrentConfig(configToml: string, channelKey: string): Record<stri
 
 function generateChannelConfig(channelKey: string, values: Record<string, string>, existingConfig: string): string {
   if (isProviderKey(channelKey)) {
-    let newConfig = existingConfig;
-    
-    for (const [key, value] of Object.entries(values)) {
-      if (!value) continue;
-      
-      const pattern = new RegExp(`^${key}\\s*=.*$`, 'm');
-      const tomlValue = key === 'default_provider' ? `"${channelKey}"` : `"${value}"`;
-      
-      if (pattern.test(newConfig)) {
-        newConfig = newConfig.replace(pattern, `${key} = ${tomlValue}`);
-      } else {
-        newConfig += `\n${key} = ${tomlValue}`;
-      }
+    const updates = Object.entries(values)
+      .filter(([, value]) => Boolean(value))
+      .map(([key, value]) => [key, key === 'default_provider' ? channelKey : value] as const);
+
+    if (updates.length === 0) {
+      return existingConfig;
     }
-    return newConfig;
+
+    const lines = existingConfig.split('\n');
+    let inSection = false;
+    const seen = new Set<string>();
+
+    const updated = lines.map((line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('[')) {
+        inSection = true;
+        return line;
+      }
+
+      if (inSection || !trimmed.includes('=')) {
+        return line;
+      }
+
+      const rawKey = trimmed.split('=', 1)[0] ?? '';
+      const key = rawKey.trim();
+      const match = updates.find(([k]) => k === key);
+      if (!match) {
+        return line;
+      }
+
+      seen.add(key);
+      return `${key} = "${match[1]}"`;
+    });
+
+    const missing = updates.filter(([key]) => !seen.has(key));
+    if (missing.length === 0) {
+      return updated.join('\n');
+    }
+
+    const firstSectionIndex = updated.findIndex((line) => line.trim().startsWith('['));
+    const insertLines = missing.map(([key, value]) => `${key} = "${value}"`);
+
+    if (firstSectionIndex === -1) {
+      const base = updated.join('\n').replace(/\n+$/, '');
+      return `${base}\n${insertLines.join('\n')}\n`;
+    }
+
+    const before = updated.slice(0, firstSectionIndex);
+    const after = updated.slice(firstSectionIndex);
+    return [...before, ...insertLines, ...after].join('\n');
   }
   
   const channelSection = `[channels_config.${channelKey}]\n`;

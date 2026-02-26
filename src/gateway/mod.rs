@@ -822,7 +822,9 @@ pub(super) async fn run_gateway_chat_with_tools(
     state: &AppState,
     message: &str,
 ) -> anyhow::Result<String> {
-    let config = state.config.lock().clone();
+    let mut config = state.config.lock().clone();
+    // Stabilization mode: keep provider selection explicit (no automatic fallback chain).
+    config.reliability.fallback_providers.clear();
     crate::agent::process_message(config, message).await
 }
 
