@@ -738,7 +738,7 @@ impl Default for PeripheralBoardConfig {
 
 /// Gateway server configuration (`[gateway]` section).
 ///
-/// Controls the HTTP gateway for webhook and pairing endpoints.
+/// Controls the HTTP gateway for webhook endpoints.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct GatewayConfig {
     /// Gateway port (default: 42617)
@@ -790,10 +790,6 @@ fn default_gateway_port() -> u16 {
 
 fn default_gateway_host() -> String {
     "127.0.0.1".into()
-}
-
-fn default_pair_rate_limit() -> u32 {
-    10
 }
 
 fn default_webhook_rate_limit() -> u32 {
@@ -5733,12 +5729,6 @@ channel_id = "C123"
     // ══════════════════════════════════════════════════════════
 
     #[test]
-    async fn checklist_gateway_default_requires_pairing() {
-        let g = GatewayConfig::default();
-        assert!(g.require_pairing, "Pairing must be required by default");
-    }
-
-    #[test]
     async fn checklist_gateway_default_blocks_public_bind() {
         let g = GatewayConfig::default();
         assert!(
@@ -5748,13 +5738,8 @@ channel_id = "C123"
     }
 
     #[test]
-    async fn checklist_gateway_default_no_tokens() {
+    async fn checklist_gateway_default_rate_limits() {
         let g = GatewayConfig::default();
-        assert!(
-            g.paired_tokens.is_empty(),
-            "No pre-paired tokens by default"
-        );
-        assert_eq!(g.pair_rate_limit_per_minute, 10);
         assert_eq!(g.webhook_rate_limit_per_minute, 60);
         assert!(!g.trust_forwarded_headers);
         assert_eq!(g.rate_limit_max_keys, 10_000);
@@ -5768,10 +5753,6 @@ channel_id = "C123"
         // Here we verify the config default matches
         let c = Config::default();
         assert!(
-            c.gateway.require_pairing,
-            "Config default must require pairing"
-        );
-        assert!(
             !c.gateway.allow_public_bind,
             "Config default must block public bind"
         );
@@ -5782,22 +5763,18 @@ channel_id = "C123"
         let g = GatewayConfig {
             port: 42617,
             host: "127.0.0.1".into(),
-            require_pairing: true,
             allow_public_bind: false,
-            paired_tokens: vec!["zc_test_token".into()],
-            pair_rate_limit_per_minute: 12,
             webhook_rate_limit_per_minute: 80,
             trust_forwarded_headers: true,
             rate_limit_max_keys: 2048,
             idempotency_ttl_secs: 600,
             idempotency_max_keys: 4096,
+            cf_access_enabled: false,
+            cf_access_public_key: String::new(),
         };
         let toml_str = toml::to_string(&g).unwrap();
         let parsed: GatewayConfig = toml::from_str(&toml_str).unwrap();
-        assert!(parsed.require_pairing);
         assert!(!parsed.allow_public_bind);
-        assert_eq!(parsed.paired_tokens, vec!["zc_test_token"]);
-        assert_eq!(parsed.pair_rate_limit_per_minute, 12);
         assert_eq!(parsed.webhook_rate_limit_per_minute, 80);
         assert!(parsed.trust_forwarded_headers);
         assert_eq!(parsed.rate_limit_max_keys, 2048);
@@ -5814,10 +5791,6 @@ config_path = "/tmp/config.toml"
 default_temperature = 0.7
 "#;
         let parsed: Config = toml::from_str(minimal).unwrap();
-        assert!(
-            parsed.gateway.require_pairing,
-            "Missing [gateway] must default to require_pairing=true"
-        );
         assert!(
             !parsed.gateway.allow_public_bind,
             "Missing [gateway] must default to allow_public_bind=false"
@@ -6933,9 +6906,7 @@ default_model = "legacy-model"
         let g = GatewayConfig::default();
         assert_eq!(g.port, 42617);
         assert_eq!(g.host, "127.0.0.1");
-        assert!(g.require_pairing);
         assert!(!g.allow_public_bind);
-        assert!(g.paired_tokens.is_empty());
         assert!(!g.trust_forwarded_headers);
         assert_eq!(g.rate_limit_max_keys, 10_000);
         assert_eq!(g.idempotency_max_keys, 10_000);

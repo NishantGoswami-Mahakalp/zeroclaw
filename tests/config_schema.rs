@@ -71,7 +71,6 @@ fn gateway_config_defaults_are_secure() {
     let gw = GatewayConfig::default();
     assert_eq!(gw.port, 42617);
     assert_eq!(gw.host, "127.0.0.1");
-    assert!(gw.require_pairing, "pairing should be required by default");
     assert!(
         !gw.allow_public_bind,
         "public bind should be denied by default"
@@ -85,7 +84,6 @@ fn gateway_config_defaults_are_secure() {
 #[test]
 fn gateway_config_rate_limit_defaults() {
     let gw = GatewayConfig::default();
-    assert_eq!(gw.pair_rate_limit_per_minute, 10);
     assert_eq!(gw.webhook_rate_limit_per_minute, 60);
     assert_eq!(gw.rate_limit_max_keys, 10_000);
 }
@@ -102,16 +100,12 @@ fn gateway_config_toml_roundtrip() {
     let mut gw = GatewayConfig::default();
     gw.port = 8080;
     gw.host = "0.0.0.0".into();
-    gw.require_pairing = false;
-    gw.pair_rate_limit_per_minute = 5;
 
     let toml_str = toml::to_string(&gw).expect("gateway config should serialize");
     let parsed: GatewayConfig = toml::from_str(&toml_str).expect("should deserialize back");
 
     assert_eq!(parsed.port, 8080);
     assert_eq!(parsed.host, "0.0.0.0");
-    assert!(!parsed.require_pairing);
-    assert_eq!(parsed.pair_rate_limit_per_minute, 5);
 }
 
 #[test]
@@ -122,7 +116,6 @@ default_temperature = 0.5
     let parsed: Config = toml::from_str(toml_str).expect("missing gateway section should parse");
     assert_eq!(parsed.gateway.port, 42617);
     assert_eq!(parsed.gateway.host, "127.0.0.1");
-    assert!(parsed.gateway.require_pairing);
     assert!(!parsed.gateway.allow_public_bind);
 }
 
@@ -137,8 +130,6 @@ port = 9090
     let parsed: Config = toml::from_str(toml_str).expect("partial gateway should parse");
     assert_eq!(parsed.gateway.port, 9090);
     assert_eq!(parsed.gateway.host, "127.0.0.1");
-    assert!(parsed.gateway.require_pairing);
-    assert_eq!(parsed.gateway.pair_rate_limit_per_minute, 10);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

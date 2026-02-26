@@ -12,9 +12,9 @@ on:
           - production
           - staging
       branch:
-        description: 'Branch to deploy (default: vps-deploy)'
+        description: 'Branch to deploy (default: main)'
         required: false
-        default: 'vps-deploy'
+        default: 'main'
 
 env:
   REGISTRY: ghcr.io
@@ -32,7 +32,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch || 'vps-deploy' }}
+          ref: ${{ github.event.inputs.branch || 'main' }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -94,11 +94,12 @@ jobs:
               --network caddy-net \
               --restart unless-stopped \
               -p 42617:42617 \
-              -v ~/.zeroclaw:/zeroclaw-data/.zeroclaw \
-              -v zeroclaw-data:/zeroclaw-data \
+              -v ~/.zeroclaw:/zeroclaw-data \
+              -e ZEROCLAW_CONFIG_DIR=/zeroclaw-data \
               -e ZEROCLAW_ALLOW_PUBLIC_BIND=true \
               -e ZEROCLAW_GATEWAY_HOST="[::]" \
-              $IMAGE
+              $IMAGE \
+              daemon
             
             echo "=== Checking health ==="
             sleep 5

@@ -704,10 +704,10 @@ fn check_daemon_state(config: &Config, items: &mut Vec<DiagItem>) {
     let state_file = crate::daemon::state_file_path(config);
 
     if !state_file.exists() {
-        items.push(DiagItem::warn(
+        items.push(DiagItem::error(
             cat,
             format!(
-                "state file not found: {} — daemon not running (expected for gateway-only deployments)",
+                "state file not found: {} — daemon not running",
                 state_file.display()
             ),
         ));
