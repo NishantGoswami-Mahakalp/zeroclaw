@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react';
 import { X, Settings, Loader2 } from 'lucide-react';
 import { FormInput } from '@/components/ui/FormInput';
-import { getConfig, getProviderModels, putConfig } from '@/lib/api';
+import {
+  createProvider,
+  getConfig,
+  getProviderModels,
+  getProviders,
+  putConfig,
+  updateProvider,
+} from '@/lib/api';
 
 interface ChannelConfigModalProps {
   channel: {
@@ -397,6 +404,29 @@ export function ChannelConfigModal({ channel, onClose, onSaved }: ChannelConfigM
 
       const newConfig = generateChannelConfig(channelKey, sanitizedValues, configToml);
       await putConfig(newConfig);
+
+      if (isProviderKey(channelKey)) {
+        const providers = await getProviders();
+        const existing = providers.find((p) => p.name === channelKey);
+        const providerPayload = {
+          profile_id: existing?.profile_id || 'default',
+          name: channelKey,
+          api_key: sanitizedValues.api_key || undefined,
+          api_url: sanitizedValues.api_url || undefined,
+          default_model: sanitizedValues.default_model || undefined,
+          is_enabled: true,
+          is_default: true,
+          priority: existing?.priority ?? 0,
+          metadata: existing?.metadata || '{}',
+        };
+
+        if (existing) {
+          await updateProvider(existing.id, providerPayload);
+        } else {
+          await createProvider(providerPayload);
+        }
+      }
+
       onSaved();
       onClose();
     } catch (err) {
