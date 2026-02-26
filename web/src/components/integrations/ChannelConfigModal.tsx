@@ -142,12 +142,34 @@ function isProviderKey(key: string): boolean {
   return PROVIDER_KEYS.includes(key);
 }
 
+function modelBelongsToProvider(channelKey: string, model: string): boolean {
+  const m = model.toLowerCase();
+  switch (channelKey) {
+    case 'google':
+      return m.startsWith('google/') || m.startsWith('gemini');
+    case 'anthropic':
+      return m.startsWith('anthropic/') || m.startsWith('claude');
+    case 'openai':
+      return m.startsWith('openai/') || m.startsWith('gpt-') || m.startsWith('o1');
+    case 'openrouter':
+      return m.includes('/');
+    case 'deepseek':
+      return m.startsWith('deepseek/');
+    case 'xai':
+      return m.startsWith('x-ai/') || m.startsWith('grok');
+    default:
+      return true;
+  }
+}
+
 function parseCurrentConfig(configToml: string, channelKey: string): Record<string, string> {
   const result: Record<string, string> = {};
   const lines = configToml.split('\n');
   const MASKED = '***MASKED***';
   
   if (isProviderKey(channelKey)) {
+    let parsedDefaultProvider = '';
+
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed.startsWith('[') || trimmed.startsWith('#')) continue;
@@ -165,11 +187,24 @@ function parseCurrentConfig(configToml: string, channelKey: string): Record<stri
           value = '';
         }
 
+        if (key === 'default_provider') {
+          parsedDefaultProvider = value;
+        }
+
         if (key === 'api_key' || key === 'api_url' || key === 'default_model') {
           result[key] = value;
         }
       }
     }
+
+    if (
+      result.default_model &&
+      parsedDefaultProvider !== channelKey &&
+      !modelBelongsToProvider(channelKey, result.default_model)
+    ) {
+      result.default_model = '';
+    }
+
     return result;
   }
   
@@ -430,7 +465,7 @@ export function ChannelConfigModal({ channel, onClose, onSaved }: ChannelConfigM
                     value={values[fieldKey] || ''}
                     onChange={(v) => handleChange(fieldKey, v)}
                     type={field.type}
-                    placeholder={field.hint}
+                    placeholder={field.type === 'password' ? '' : field.hint}
                     hint={field.hint}
                   />
                 </div>
