@@ -12,6 +12,7 @@ use axum::{
     response::{IntoResponse, Json},
 };
 use serde::Deserialize;
+use serde_json::Value;
 
 /// Verify request uses Cloudflare Access JWT. Returns error response if unauthorized.
 fn require_auth(
@@ -875,6 +876,50 @@ pub async fn handle_api_provider_models(
     Json(serde_json::json!({ "models": models })).into_response()
 }
 
+#[derive(Deserialize)]
+pub struct ProviderModelsProbeBody {
+    api_key: Option<String>,
+    api_url: Option<String>,
+}
+
+/// POST /api/providers/:provider/models — probe models using provided key/url
+pub async fn handle_api_provider_models_probe(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(provider): Path<String>,
+    Json(body): Json<ProviderModelsProbeBody>,
+) -> impl IntoResponse {
+    if let Err(e) = require_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let cfg = state.config.lock().clone();
+    let api_key = body
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            cfg.api_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+        });
+
+    match fetch_live_models_for_provider(&provider, api_key.as_deref(), body.api_url.as_deref())
+        .await
+    {
+        Ok(models) => Json(serde_json::json!({ "models": models })).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("Model probe failed: {e}") })),
+        )
+            .into_response(),
+    }
+}
+
 // ── Helpers ─────────────────────────────────────────────────────
 
 fn mask_sensitive_fields(toml_str: &str) -> String {
@@ -904,6 +949,202 @@ fn mask_sensitive_fields(toml_str: &str) -> String {
         output.push('\n');
     }
     output
+}
+
+async fn fetch_live_models_for_provider(
+    provider: &str,
+    api_key: Option<&str>,
+    api_url: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let provider = provider.to_lowercase();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("client build failed: {e}"))?;
+
+    let models = match provider.as_str() {
+        "google" | "gemini" => fetch_gemini_models(&client, api_key).await?,
+        "anthropic" => fetch_anthropic_models(&client, api_key).await?,
+        "openrouter" => {
+            fetch_openai_compatible_models(&client, "https://openrouter.ai/api/v1/models", api_key)
+                .await?
+        }
+        "ollama" => {
+            let base = api_url
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("http://localhost:11434");
+            let endpoint = format!("{}/api/tags", base.trim_end_matches('/'));
+            fetch_ollama_models(&client, &endpoint).await?
+        }
+        // default to OpenAI-compatible /models endpoint if known
+        "openai" => {
+            fetch_openai_compatible_models(&client, "https://api.openai.com/v1/models", api_key)
+                .await?
+        }
+        "deepseek" => {
+            fetch_openai_compatible_models(&client, "https://api.deepseek.com/v1/models", api_key)
+                .await?
+        }
+        "xai" => {
+            fetch_openai_compatible_models(&client, "https://api.x.ai/v1/models", api_key).await?
+        }
+        "mistral" => {
+            fetch_openai_compatible_models(&client, "https://api.mistral.ai/v1/models", api_key)
+                .await?
+        }
+        "perplexity" => {
+            fetch_openai_compatible_models(&client, "https://api.perplexity.ai/models", api_key)
+                .await?
+        }
+        _ => Vec::new(),
+    };
+
+    let mut unique = std::collections::BTreeSet::new();
+    for m in models {
+        let model = m.trim();
+        if !model.is_empty() {
+            unique.insert(model.to_string());
+        }
+    }
+    Ok(unique.into_iter().collect())
+}
+
+async fn fetch_openai_compatible_models(
+    client: &reqwest::Client,
+    endpoint: &str,
+    api_key: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let mut req = client.get(endpoint);
+    if let Some(key) = api_key.filter(|k| !k.trim().is_empty()) {
+        req = req.bearer_auth(key);
+    } else {
+        return Err("API key required".to_string());
+    }
+
+    let payload: Value = req
+        .send()
+        .await
+        .map_err(|e| format!("request failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("http error: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("invalid JSON: {e}"))?;
+
+    let mut out = Vec::new();
+    if let Some(arr) = payload.get("data").and_then(Value::as_array) {
+        for item in arr {
+            if let Some(id) = item.get("id").and_then(Value::as_str) {
+                out.push(id.to_string());
+            } else if let Some(name) = item.get("name").and_then(Value::as_str) {
+                out.push(name.to_string());
+            }
+        }
+    }
+    Ok(out)
+}
+
+async fn fetch_anthropic_models(
+    client: &reqwest::Client,
+    api_key: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let key = api_key
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+        .ok_or_else(|| "API key required".to_string())?;
+
+    let mut req = client
+        .get("https://api.anthropic.com/v1/models")
+        .header("anthropic-version", "2023-06-01");
+
+    if key.starts_with("sk-ant-oat01-") {
+        req = req
+            .header("Authorization", format!("Bearer {key}"))
+            .header("anthropic-beta", "oauth-2025-04-20");
+    } else {
+        req = req.header("x-api-key", key);
+    }
+
+    let payload: Value = req
+        .send()
+        .await
+        .map_err(|e| format!("request failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("http error: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("invalid JSON: {e}"))?;
+
+    let mut out = Vec::new();
+    if let Some(arr) = payload.get("data").and_then(Value::as_array) {
+        for item in arr {
+            if let Some(id) = item.get("id").and_then(Value::as_str) {
+                out.push(id.to_string());
+            } else if let Some(name) = item.get("name").and_then(Value::as_str) {
+                out.push(name.to_string());
+            }
+        }
+    }
+    Ok(out)
+}
+
+async fn fetch_gemini_models(
+    client: &reqwest::Client,
+    api_key: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let key = api_key
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+        .ok_or_else(|| "API key required".to_string())?;
+
+    let payload: Value = client
+        .get("https://generativelanguage.googleapis.com/v1beta/models")
+        .query(&[("key", key), ("pageSize", "200")])
+        .send()
+        .await
+        .map_err(|e| format!("request failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("http error: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("invalid JSON: {e}"))?;
+
+    let mut out = Vec::new();
+    if let Some(arr) = payload.get("models").and_then(Value::as_array) {
+        for item in arr {
+            if let Some(name) = item.get("name").and_then(Value::as_str) {
+                out.push(name.trim_start_matches("models/").to_string());
+            }
+        }
+    }
+    Ok(out)
+}
+
+async fn fetch_ollama_models(
+    client: &reqwest::Client,
+    endpoint: &str,
+) -> Result<Vec<String>, String> {
+    let payload: Value = client
+        .get(endpoint)
+        .send()
+        .await
+        .map_err(|e| format!("request failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("http error: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("invalid JSON: {e}"))?;
+
+    let mut out = Vec::new();
+    if let Some(arr) = payload.get("models").and_then(Value::as_array) {
+        for item in arr {
+            if let Some(name) = item.get("name").and_then(Value::as_str) {
+                out.push(name.to_string());
+            }
+        }
+    }
+    Ok(out)
 }
 
 // ==================== Profiles API ====================

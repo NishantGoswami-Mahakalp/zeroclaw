@@ -382,7 +382,10 @@ export function ChannelConfigModal({ channel, onClose, onSaved }: ChannelConfigM
     setMessage(null);
     try {
       if (isProviderKey(channelKey)) {
-        const models = await getProviderModels(channelKey);
+        const models = await getProviderModels(channelKey, {
+          apiKey: values.api_key,
+          apiUrl: values.api_url,
+        });
         setMessage(
           models.length > 0
             ? `Connection looks good. Found ${models.length} model(s).`

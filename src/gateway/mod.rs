@@ -688,7 +688,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         )
         .route(
             "/api/providers/{provider}/models",
-            get(api::handle_api_provider_models),
+            get(api::handle_api_provider_models).post(api::handle_api_provider_models_probe),
         )
         .route("/api/tools", get(api::handle_api_tools))
         .route("/api/tools/{name}", put(api::handle_api_tool_toggle))

@@ -294,7 +294,17 @@ export function getProviders(profileId?: string): Promise<Provider[]> {
   return apiFetch<Provider[]>(`/api/providers${params}`);
 }
 
-export function getProviderModels(provider: string): Promise<string[]> {
+export function getProviderModels(
+  provider: string,
+  opts?: { apiKey?: string; apiUrl?: string },
+): Promise<string[]> {
+  if (opts?.apiKey || opts?.apiUrl) {
+    return apiFetch<{ models: string[] }>(`/api/providers/${encodeURIComponent(provider)}/models`, {
+      method: 'POST',
+      body: JSON.stringify({ api_key: opts.apiKey, api_url: opts.apiUrl }),
+    }).then((data) => data.models ?? []);
+  }
+
   return apiFetch<{ models: string[] }>(`/api/providers/${encodeURIComponent(provider)}/models`).then(
     (data) => data.models ?? [],
   );
