@@ -637,7 +637,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         // ── Public routes (no auth required) ──
         .route("/health", get(handle_health))
         .route("/api/public/status", get(api::handle_api_public_status))
-        .route("/api/status", get(api::handle_api_public_status))
+        // Note: /api/status now uses handle_api_public_status (see line above)
         // ── Existing routes ──
         .route("/metrics", get(handle_metrics))
         .route("/webhook", post(handle_webhook))
@@ -646,7 +646,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/linq", post(handle_linq_webhook))
         .route("/nextcloud-talk", post(handle_nextcloud_talk_webhook))
         // ── Web Dashboard API routes ──
-        .route("/api/status", get(api::handle_api_status))
+        // /api/status is now public (see above)
         .route("/api/config", get(api::handle_api_config_get))
         .route("/api/config/schema", get(api::handle_api_config_schema))
         // Profiles API
