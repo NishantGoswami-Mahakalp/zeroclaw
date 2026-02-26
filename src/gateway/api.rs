@@ -78,6 +78,24 @@ pub struct ChannelToggleBody {
 
 // ── Handlers ────────────────────────────────────────────────────
 
+/// GET /api/public/status — public system status (no auth required)
+pub async fn handle_api_public_status(State(state): State<AppState>) -> impl IntoResponse {
+    let config = state.config.lock().clone();
+    let health = crate::health::snapshot();
+
+    let body = serde_json::json!({
+        "status": "ok",
+        "provider": config.default_provider,
+        "model": state.model,
+        "uptime_seconds": health.uptime_seconds,
+        "gateway_port": config.gateway.port,
+        "cf_access_enabled": state.cf_access_enabled,
+        "health": health,
+    });
+
+    Json(body)
+}
+
 /// GET /api/status — system status overview
 pub async fn handle_api_status(
     State(state): State<AppState>,
