@@ -213,18 +213,19 @@ fn parse_rsa_public_key(pem: &str) -> Result<Vec<u8>, String> {
     let end = pem.find(footer).map(|i| i).unwrap_or(pem.len());
 
     let encoded = pem[start..end].trim();
+    let encoded_compact: String = encoded.chars().filter(|c| !c.is_whitespace()).collect();
 
     // PEM bodies use standard base64 (with '+' and '/' chars, often padded).
     // Keep a URL-safe fallback in case operators paste URL-safe encoded DER.
     {
         use base64::Engine;
         let standard = base64::engine::general_purpose::STANDARD;
-        if let Ok(decoded) = standard.decode(encoded) {
+        if let Ok(decoded) = standard.decode(&encoded_compact) {
             return Ok(decoded);
         }
     }
 
-    decode_base64_url(encoded)
+    decode_base64_url(&encoded_compact)
 }
 
 /// Check if Cloudflare Access headers are present in the request.

@@ -88,6 +88,7 @@ jobs:
             docker create --name zeroclaw-temp $IMAGE /bin/true
             docker cp zeroclaw-temp:/zeroclaw-data/config.toml ~/.zeroclaw/config.toml
             docker rm zeroclaw-temp
+            chmod 600 ~/.zeroclaw/config.toml
             
             echo "=== Stopping existing container ==="
             docker stop zeroclaw 2>/dev/null || true
