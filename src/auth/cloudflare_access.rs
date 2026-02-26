@@ -231,44 +231,13 @@ pub fn extract_cloudflare_jwt(headers: &axum::http::HeaderMap) -> Option<String>
 
     // 3. Check CF-Access-Client-Token header (service tokens)
     for (name, value) in headers.iter() {
-        if name
-            .as_str()
-            .eq_ignore_ascii_case("cf-access-client-token")
-        {
+        if name.as_str().eq_ignore_ascii_case("cf-access-client-token") {
             tracing::debug!("Found CF-Access-Client-Token header");
             return value.to_str().ok().map(|s| s.to_string());
         }
     }
 
     tracing::debug!("No Cloudflare Access JWT found in headers");
-    None
-}
-    }
-
-    // 2. Check CF_Access_JWT cookie (standard Cloudflare Access cookie)
-    if let Some(cookie) = headers.get(axum::http::header::COOKIE) {
-        if let Ok(cookie_str) = cookie.to_str() {
-            for part in cookie_str.split(';') {
-                let part = part.trim();
-                if part.starts_with("CF_Access_JWT=") || part.starts_with("CF_Authorization=") {
-                    let key = if part.starts_with("CF_Access_JWT=") {
-                        "CF_Access_JWT="
-                    } else {
-                        "CF_Authorization="
-                    };
-                    return Some(part.strip_prefix(key)?.to_string());
-                }
-            }
-        }
-    }
-
-    // 3. Check CF-Access-Client-Token header (service tokens)
-    for (name, value) in headers.iter() {
-        if name.as_str().eq_ignore_ascii_case("cf-access-client-token") {
-            return value.to_str().ok().map(|s| s.to_string());
-        }
-    }
-
     None
 }
 
