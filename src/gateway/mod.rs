@@ -301,6 +301,8 @@ pub struct AppState {
     pub cf_access_enabled: bool,
     /// Cloudflare Access public key for JWT validation
     pub cf_access_public_key: Option<String>,
+    /// Cloudflare Access Application Audience (AUD) tag
+    pub cf_access_aud_tag: Option<String>,
 }
 
 /// Run the HTTP gateway using axum with proper HTTP/1.1 compliance.
@@ -625,6 +627,11 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         } else {
             Some(config.gateway.cf_access_public_key)
         },
+        cf_access_aud_tag: if config.gateway.cf_access_aud_tag.is_empty() {
+            None
+        } else {
+            Some(config.gateway.cf_access_aud_tag)
+        },
     };
 
     // Config PUT needs larger body limit (1MB)
@@ -847,7 +854,11 @@ async fn handle_webhook(
         // Cloudflare Access JWT authentication
         if let Some(ref public_key) = state.cf_access_public_key {
             if let Some(jwt) = crate::auth::cloudflare_access::extract_cloudflare_jwt(&headers) {
-                match crate::auth::cloudflare_access::validate_cloudflare_token(&jwt, public_key) {
+                match crate::auth::cloudflare_access::validate_cloudflare_token(
+                    &jwt,
+                    public_key,
+                    state.cf_access_aud_tag.as_deref(),
+                ) {
                     crate::auth::cloudflare_access::CloudflareAuthResult::Authenticated(_) => {
                         authenticated = true;
                     }

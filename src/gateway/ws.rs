@@ -39,7 +39,7 @@ fn is_authenticated(state: &AppState, headers: &HeaderMap) -> bool {
     // Cloudflare Access JWT authentication required
     if let Some(ref public_key) = state.cf_access_public_key {
         if let Some(jwt) = extract_cloudflare_jwt(headers) {
-            match validate_cloudflare_token(&jwt, public_key) {
+            match validate_cloudflare_token(&jwt, public_key, state.cf_access_aud_tag.as_deref()) {
                 CloudflareAuthResult::Authenticated(_) => return true,
                 _ => {}
             }

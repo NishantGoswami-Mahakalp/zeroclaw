@@ -782,6 +782,12 @@ pub struct GatewayConfig {
     /// Can be fetched from: https://{your-domain}/.well-known/cloudflare-access-jwt-parse
     #[serde(default)]
     pub cf_access_public_key: String,
+
+    /// Cloudflare Access Application Audience (AUD) tag.
+    /// Required if cf_access_enabled is true.
+    /// Can be found in Cloudflare Dashboard -> Access -> Applications -> Your App -> AUD Tag
+    #[serde(default)]
+    pub cf_access_aud_tag: String,
 }
 
 fn default_gateway_port() -> u16 {
@@ -825,6 +831,7 @@ impl Default for GatewayConfig {
             idempotency_max_keys: default_gateway_idempotency_max_keys(),
             cf_access_enabled: false,
             cf_access_public_key: String::new(),
+            cf_access_aud_tag: String::new(),
         }
     }
 }

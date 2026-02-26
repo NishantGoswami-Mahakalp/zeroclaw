@@ -13,6 +13,14 @@ pub struct CloudflareClaims {
     pub email: Option<String>,
     /// User's unique identifier.
     pub sub: Option<String>,
+    /// Issuer - should be https://<team>.cloudflareaccess.com
+    pub iss: Option<String>,
+    /// Audience - should match the Application AUD tag
+    pub aud: Option<String>,
+    /// Expiration timestamp
+    pub exp: Option<i64>,
+    /// Issued at timestamp
+    pub iat: Option<i64>,
     /// Groups the user belongs to (if configured).
     #[serde(default)]
     pub groups: Vec<String>,
@@ -41,7 +49,11 @@ pub enum CloudflareAuthResult {
 ///
 /// The JWT is validated against Cloudflare's public key, which can be fetched
 /// from the well-known endpoint or configured directly.
-pub fn validate_cloudflare_token(jwt: &str, public_key: &str) -> CloudflareAuthResult {
+pub fn validate_cloudflare_token(
+    jwt: &str,
+    public_key: &str,
+    aud_tag: Option<&str>,
+) -> CloudflareAuthResult {
     if jwt.is_empty() {
         return CloudflareAuthResult::NotPresent;
     }
@@ -79,6 +91,39 @@ pub fn validate_cloudflare_token(jwt: &str, public_key: &str) -> CloudflareAuthR
         Err(e) => return CloudflareAuthResult::Invalid(format!("Invalid claims JSON: {}", e)),
     };
 
+    // Validate expiration
+    if let Some(exp) = claims.exp {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        if exp < now {
+            return CloudflareAuthResult::Invalid("Token expired".to_string());
+        }
+    }
+
+    // Validate audience if provided
+    if let Some(expected_aud) = aud_tag {
+        if let Some(aud) = &claims.aud {
+            if aud != expected_aud {
+                return CloudflareAuthResult::Invalid(format!(
+                    "Invalid audience: expected {}, got {}",
+                    expected_aud, aud
+                ));
+            }
+        } else {
+            return CloudflareAuthResult::Invalid("Missing audience claim".to_string());
+        }
+    }
+
+    // Validate issuer
+    if let Some(iss) = &claims.iss {
+        if !iss.ends_with(".cloudflareaccess.com") && !iss.contains(".cloudflareaccess.com") {
+            return CloudflareAuthResult::Invalid(format!("Invalid issuer: {}", iss));
+        }
+    }
+
+    // Signature verification will be done below
     let signature_input = format!("{}.{}", parts[0], parts[1]);
     let signature = match decode_base64_url(parts[2]) {
         Ok(s) => s,

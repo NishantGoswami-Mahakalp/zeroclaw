@@ -26,7 +26,7 @@ fn require_auth(
     // Cloudflare Access JWT authentication required
     if let Some(ref public_key) = state.cf_access_public_key {
         if let Some(jwt) = extract_cloudflare_jwt(headers) {
-            match validate_cloudflare_token(&jwt, public_key) {
+            match validate_cloudflare_token(&jwt, public_key, state.cf_access_aud_tag.as_deref()) {
                 CloudflareAuthResult::Authenticated(_claims) => {
                     tracing::debug!("Authenticated via Cloudflare Access JWT");
                     return Ok(());
