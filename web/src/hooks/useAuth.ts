@@ -14,7 +14,7 @@ import React from 'react';
 export interface AuthState {
   /** Always true when using Cloudflare Access - browser handles auth */
   isAuthenticated: boolean;
-  /** No-op for Cloudflare Access */
+  /** Logout from Cloudflare Access */
   logout: () => void;
 }
 
@@ -33,7 +33,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [authenticated] = useState<boolean>(true);
 
   const logout = useCallback((): void => {
-    // Cloudflare Access handles logout via browser - no local token to clear
+    // Redirect to Cloudflare Access logout
+    window.location.href = 'https://mahakalp.cloudflareaccess.com/cdn-cgi/access/logout';
   }, []);
 
   const value: AuthState = {
