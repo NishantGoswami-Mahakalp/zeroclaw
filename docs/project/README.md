@@ -6,6 +6,7 @@ Time-bound project status snapshots for planning documentation and operations wo
 
 - [../project-triage-snapshot-2026-02-18.md](../project-triage-snapshot-2026-02-18.md)
 - [provider-model-listing-matrix-2026-02-27.md](provider-model-listing-matrix-2026-02-27.md)
+- [orchestrator-vs-provider-catalog-plan-2026-02-27.md](orchestrator-vs-provider-catalog-plan-2026-02-27.md)
 
 ## Scope
 
