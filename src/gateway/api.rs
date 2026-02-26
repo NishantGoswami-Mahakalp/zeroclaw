@@ -36,6 +36,22 @@ fn require_auth(
                 }
                 CloudflareAuthResult::NotPresent => {}
             }
+        } else {
+            let cf_header = headers
+                .get("cf-access-jwt-assertion")
+                .or_else(|| headers.get("Cf-Access-Jwt-Assertion"))
+                .is_some();
+            let cf_client_token = headers
+                .get("cf-access-client-token")
+                .or_else(|| headers.get("CF-Access-Client-Token"))
+                .is_some();
+            let cookie_present = headers.get(axum::http::header::COOKIE).is_some();
+            tracing::warn!(
+                "Cloudflare JWT missing from request headers: cf-access-jwt-assertion={}, cf-access-client-token={}, cookie_header_present={}",
+                cf_header,
+                cf_client_token,
+                cookie_present
+            );
         }
         // If cf_access_enabled but no valid JWT, reject
         return Err((
