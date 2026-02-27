@@ -73,7 +73,7 @@ jobs:
 
     publish:
         name: Build and Push Docker Image
-        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+        if: (github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')) || github.event_name == 'workflow_dispatch'
         runs-on: blacksmith-2vcpu-ubuntu-2404
         timeout-minutes: 45
         permissions:
@@ -107,6 +107,9 @@ jobs:
                     # Tag push - use the tag name
                     TAG_NAME="${GITHUB_REF#refs/tags/}"
                     TAGS="${IMAGE}:${TAG_NAME},${SHA_TAG}"
+                  elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+                    # Manual trigger - use sha tag
+                    TAGS="${SHA_TAG}"
                   else
                     echo "::error::Docker publish is restricted to main branch or v* tag pushes."
                     exit 1
