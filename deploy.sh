@@ -180,7 +180,7 @@ DOCKER_CMD="docker run -d \
     -e MODEL=$MODEL \
     -e ZEROCLAW_ALLOW_PUBLIC_BIND=true \
     --restart unless-stopped \
-    ghcr.io/zeroclaw-labs/zeroclaw:latest"
+    ghcr.io/nishantgoswami-mahakalp/zeroclaw:latest"
 
 # Run container
 log_info "Starting ZeroClaw container..."
