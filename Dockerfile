@@ -83,6 +83,13 @@ EOF
 # ── Runtime Stage ─────────────────────────────────────────────────
 FROM gcr.io/distroless/cc-debian13
 
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+        git \
+        curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
 # Copy binary from builder
 COPY --from=builder /app/zeroclaw /usr/local/bin/zeroclaw
 COPY --chmod=755 --from=builder /app/web /app/web
