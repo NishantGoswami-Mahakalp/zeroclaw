@@ -122,7 +122,7 @@ jobs:
                   context: .
                   push: true
                   tags: ${{ steps.meta.outputs.tags }}
-                  platforms: linux/amd64,linux/arm64
+                  platforms: linux/amd64
 
             - name: Set GHCR package visibility to public
               shell: bash

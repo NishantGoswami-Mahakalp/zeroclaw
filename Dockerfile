@@ -81,7 +81,7 @@ cf_access_enabled = true
 EOF
 
 # ── Runtime Stage ─────────────────────────────────────────────────
-FROM gcr.io/distroless/debian12
+FROM debian:bookworm-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
