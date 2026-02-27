@@ -55,7 +55,7 @@ jobs:
                       type=ref,event=pr
 
             - name: Build smoke image
-              uses: useblacksmith/build-push-action@30c71162f16ea2c27c3e21523255d209b8b538c1 # v2
+              uses: docker/build-push-action@v5
               with:
                   context: .
                   push: false
@@ -116,7 +116,7 @@ jobs:
                   echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
 
             - name: Build and push Docker image
-              uses: useblacksmith/build-push-action@30c71162f16ea2c27c3e21523255d209b8b538c1 # v2
+              uses: docker/build-push-action@v5
               with:
                   context: .
                   push: true
