@@ -189,6 +189,9 @@ eval $DOCKER_CMD
 # Wait for startup
 sleep 3
 
+# Connect to Caddy network for reverse proxy
+docker network connect caddy-net zeroclaw 2>/dev/null || true
+
 # Fix config permissions (container runs as root, so we need to fix after)
 chmod 600 ~/.zeroclaw/config.toml 2>/dev/null || true
 
