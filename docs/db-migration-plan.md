@@ -351,3 +351,50 @@ web/src/pages/Agents.tsx       # NEW
 3. Always maintain config.toml fallback
 4. Testable at each phase
 5. Fork-friendly minimal changes
+
+---
+
+## Implementation Status
+
+**Branch:** `integration/vps-upstream-merge`
+**Status:** ✅ ALL PHASES COMPLETE
+
+### Completed Implementation
+
+| Phase | Status | Commit | Description |
+|-------|--------|--------|-------------|
+| Phase 1 | ✅ | `d3d6f453` | Optional DB wrapper + CLI flag (`--use-db-config`) |
+| Phase 2 | ✅ | `c5c1b8ad` | CRUD API endpoints (`/api/db/*`) |
+| Phase 3 | ✅ | `e112223a` | ProviderResolver trait |
+| Phase 4 | ✅ | `3c1fe456` | ChannelLoader trait |
+| Phase 5 | ✅ | `c2786357` | Agent DB configuration |
+| Phase 6 | ✅ | `87c87d67` | Onboarding → DB |
+| Phase 7 | ✅ | `19583a90` | Migration command |
+
+### New Files Created
+- `src/config/db_wrapper.rs` - Optional DB state wrapper
+- `src/agent/provider_resolver.rs` - Provider resolution trait
+- `src/channels/loader.rs` - Channel loading trait
+- `src/gateway/api_db.rs` - REST API endpoints
+
+### Modified Files
+- `src/config/mod.rs` - Exports
+- `src/main.rs` - CLI flag + config-migrate command
+- `src/onboard/wizard.rs` - DB writing during onboarding
+- `src/gateway/mod.rs` - API module
+
+### Usage
+
+```bash
+# Enable DB-backed config
+zeroclaw --use-db-config daemon
+
+# Migrate existing config.toml to DB
+zeroclaw config-migrate
+
+# DB API endpoints (when DB enabled)
+curl http://localhost:8000/api/db/providers
+curl -X POST http://localhost:8000/api/db/providers \
+  -H "Content-Type: application/json" \
+  -d '{"name": "openai", "api_key": "sk-..."}'
+```
