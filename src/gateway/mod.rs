@@ -8,6 +8,7 @@
 //! - Header sanitization (handled by axum/hyper)
 
 pub mod api;
+mod api_db;
 mod openai_compat;
 mod openclaw_compat;
 pub mod sse;
