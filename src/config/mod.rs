@@ -1,8 +1,10 @@
 pub mod db;
+pub mod db_wrapper;
 pub mod schema;
 pub mod traits;
 
 pub use db::ConfigDatabase;
+pub use db_wrapper::ConfigState;
 
 #[allow(unused_imports)]
 pub use schema::{
