@@ -571,6 +571,9 @@ Examples:
         #[arg(value_enum)]
         shell: CompletionShell,
     },
+
+    /// Migrate config.toml to database
+    ConfigMigrate,
 }
 
 #[derive(Subcommand, Debug)]
@@ -1365,6 +1368,171 @@ async fn main() -> Result<()> {
                 Ok(())
             }
         },
+
+        Commands::ConfigMigrate => {
+            use config::db::{Agent, Channel, ConfigDatabase, Provider};
+
+            let config_dir = config
+                .config_path
+                .parent()
+                .context("Config path must have a parent directory")?;
+
+            let db = ConfigDatabase::new(&config_dir.to_path_buf())
+                .context("Failed to initialize config database")?;
+
+            let profile = db.ensure_default_profile()?;
+
+            if let Some(provider_name) = &config.default_provider {
+                let provider = Provider {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    profile_id: profile.id.clone(),
+                    name: provider_name.clone(),
+                    api_key: config.api_key.clone(),
+                    api_url: config.api_url.clone(),
+                    default_model: config.default_model.clone(),
+                    temperature: Some(config.default_temperature),
+                    is_enabled: true,
+                    is_default: true,
+                    priority: 0,
+                    metadata: None,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    updated_at: chrono::Utc::now().to_rfc3339(),
+                };
+
+                db.create_provider(&provider)
+                    .context("Failed to create provider in DB")?;
+                println!("✓ Migrated provider: {}", provider_name);
+            }
+
+            let agent = Agent {
+                id: uuid::Uuid::new_v4().to_string(),
+                profile_id: profile.id.clone(),
+                name: "default".to_string(),
+                provider: config.default_provider.clone().unwrap_or_default(),
+                model: config.default_model.clone(),
+                api_key: config.api_key.clone(),
+                api_url: config.api_url.clone(),
+                system_prompt: None,
+                temperature: Some(config.default_temperature),
+                max_depth: None,
+                agentic: false,
+                allowed_tools: None,
+                max_iterations: None,
+                metadata: None,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                updated_at: chrono::Utc::now().to_rfc3339(),
+            };
+
+            db.create_agent(&agent)
+                .context("Failed to create agent in DB")?;
+            println!("✓ Migrated agent: default");
+
+            let channels_config = &config.channels_config;
+            let mut channels_migrated = 0;
+
+            if let Some(ref telegram) = channels_config.telegram {
+                let channel = Channel {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    profile_id: profile.id.clone(),
+                    channel_type: "telegram".to_string(),
+                    config: serde_json::to_string(telegram).unwrap_or_default(),
+                    is_enabled: true,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    updated_at: chrono::Utc::now().to_rfc3339(),
+                };
+                db.create_channel(&channel).ok();
+                channels_migrated += 1;
+                println!("✓ Migrated channel: telegram");
+            }
+
+            if let Some(ref discord) = channels_config.discord {
+                let channel = Channel {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    profile_id: profile.id.clone(),
+                    channel_type: "discord".to_string(),
+                    config: serde_json::to_string(discord).unwrap_or_default(),
+                    is_enabled: true,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    updated_at: chrono::Utc::now().to_rfc3339(),
+                };
+                db.create_channel(&channel).ok();
+                channels_migrated += 1;
+                println!("✓ Migrated channel: discord");
+            }
+
+            if let Some(ref slack) = channels_config.slack {
+                let channel = Channel {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    profile_id: profile.id.clone(),
+                    channel_type: "slack".to_string(),
+                    config: serde_json::to_string(slack).unwrap_or_default(),
+                    is_enabled: true,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    updated_at: chrono::Utc::now().to_rfc3339(),
+                };
+                db.create_channel(&channel).ok();
+                channels_migrated += 1;
+                println!("✓ Migrated channel: slack");
+            }
+
+            if let Some(ref webhook) = channels_config.webhook {
+                let channel = Channel {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    profile_id: profile.id.clone(),
+                    channel_type: "webhook".to_string(),
+                    config: serde_json::to_string(webhook).unwrap_or_default(),
+                    is_enabled: true,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    updated_at: chrono::Utc::now().to_rfc3339(),
+                };
+                db.create_channel(&channel).ok();
+                channels_migrated += 1;
+                println!("✓ Migrated channel: webhook");
+            }
+
+            if let Some(ref matrix) = channels_config.matrix {
+                let channel = Channel {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    profile_id: profile.id.clone(),
+                    channel_type: "matrix".to_string(),
+                    config: serde_json::to_string(matrix).unwrap_or_default(),
+                    is_enabled: true,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    updated_at: chrono::Utc::now().to_rfc3339(),
+                };
+                db.create_channel(&channel).ok();
+                channels_migrated += 1;
+                println!("✓ Migrated channel: matrix");
+            }
+
+            if let Some(ref github) = channels_config.github {
+                let channel = Channel {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    profile_id: profile.id.clone(),
+                    channel_type: "github".to_string(),
+                    config: serde_json::to_string(github).unwrap_or_default(),
+                    is_enabled: true,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    updated_at: chrono::Utc::now().to_rfc3339(),
+                };
+                db.create_channel(&channel).ok();
+                channels_migrated += 1;
+                println!("✓ Migrated channel: github");
+            }
+
+            if channels_migrated == 0 {
+                println!("ℹ No channels configured in config.toml to migrate");
+            } else {
+                println!("✓ Migrated {} channel(s)", channels_migrated);
+            }
+
+            println!();
+            println!("✅ Config migration complete!");
+            println!("  Profile: {}", profile.name);
+            println!("  Database: {:?}", config_dir.join("config.db"));
+
+            Ok(())
+        }
     }
 }
 
