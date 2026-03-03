@@ -5,6 +5,7 @@ pub mod dispatcher;
 pub mod loop_;
 pub mod memory_loader;
 pub mod prompt;
+pub mod provider_resolver;
 pub mod quota_aware;
 pub mod research;
 pub mod session;
