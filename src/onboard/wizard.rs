@@ -1,8 +1,10 @@
+use crate::config::db::{Agent, Provider};
 use crate::config::schema::{
     default_nostr_relays, DingTalkConfig, IrcConfig, LarkReceiveMode, LinqConfig,
     NextcloudTalkConfig, NostrConfig, ProgressMode, QQConfig, QQEnvironment, QQReceiveMode,
     SignalConfig, StreamMode, WhatsAppConfig,
 };
+use crate::config::ConfigDatabase;
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
     HeartbeatConfig, HttpRequestConfig, HttpRequestCredentialProfile, IMessageConfig,
@@ -253,6 +255,9 @@ pub async fn run_wizard_with_migration(
 
     config.save().await?;
     persist_workspace_selection(&config.config_path).await?;
+
+    // Optionally write config to database if --use-db-config flag is set
+    maybe_write_config_to_db(&config).await?;
 
     maybe_run_openclaw_migration(&mut config, &migration_options, true).await?;
 
@@ -760,6 +765,9 @@ async fn run_quick_setup_with_home(
 
     config.save().await?;
     persist_workspace_selection(&config.config_path).await?;
+
+    // Optionally write config to database if --use-db-config flag is set
+    maybe_write_config_to_db(&config).await?;
 
     // Scaffold minimal workspace files
     let default_ctx = ProjectContext {
@@ -6785,6 +6793,82 @@ fn print_summary(config: &Config) {
         style("Happy hacking! 🦀").white().bold()
     );
     println!();
+}
+
+fn is_db_config_enabled() -> bool {
+    std::env::var("ZEROCLAW_USE_DB_CONFIG").as_deref() == Ok("1")
+}
+
+async fn maybe_write_config_to_db(config: &Config) -> Result<()> {
+    if !is_db_config_enabled() {
+        return Ok(());
+    }
+
+    println!();
+    println!("  {} Writing config to database...", style("💾").cyan());
+
+    let data_dir = config
+        .config_path
+        .parent()
+        .context("Config path must have a parent directory")?
+        .to_path_buf();
+
+    let db = ConfigDatabase::new(&data_dir).context("Failed to initialize config database")?;
+
+    let profile = db.ensure_default_profile()?;
+
+    if let Some(provider_name) = &config.default_provider {
+        let provider = Provider {
+            id: uuid::Uuid::new_v4().to_string(),
+            profile_id: profile.id.clone(),
+            name: provider_name.clone(),
+            api_key: config.api_key.clone(),
+            api_url: config.api_url.clone(),
+            default_model: config.default_model.clone(),
+            temperature: Some(config.default_temperature),
+            is_enabled: true,
+            is_default: true,
+            priority: 0,
+            metadata: None,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        };
+
+        if let Err(e) = db.create_provider(&provider) {
+            tracing::warn!("Failed to create provider in DB: {}", e);
+        }
+    }
+
+    let agent = Agent {
+        id: uuid::Uuid::new_v4().to_string(),
+        profile_id: profile.id.clone(),
+        name: "default".to_string(),
+        provider: config.default_provider.clone().unwrap_or_default(),
+        model: config.default_model.clone(),
+        api_key: config.api_key.clone(),
+        api_url: config.api_url.clone(),
+        system_prompt: None,
+        temperature: Some(config.default_temperature),
+        max_depth: None,
+        agentic: false,
+        allowed_tools: None,
+        max_iterations: None,
+        metadata: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    if let Err(e) = db.create_agent(&agent) {
+        tracing::warn!("Failed to create agent in DB: {}", e);
+    }
+
+    println!(
+        "  {} Config written to database (profile: {})",
+        style("✓").green().bold(),
+        style(&profile.name).green()
+    );
+
+    Ok(())
 }
 
 #[cfg(test)]
