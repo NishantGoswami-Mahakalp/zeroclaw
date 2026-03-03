@@ -140,6 +140,10 @@ struct Cli {
     #[arg(long, global = true)]
     config_dir: Option<String>,
 
+    /// Enable database-backed configuration (optional)
+    #[arg(long, global = true)]
+    use_db_config: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -809,6 +813,11 @@ async fn main() -> Result<()> {
             bail!("--config-dir cannot be empty");
         }
         std::env::set_var("ZEROCLAW_CONFIG_DIR", config_dir);
+    }
+
+    // Enable database-backed configuration if flag is set
+    if cli.use_db_config {
+        std::env::set_var("ZEROCLAW_USE_DB_CONFIG", "1");
     }
 
     // Completions must remain stdout-only and should not load config or initialize logging.
