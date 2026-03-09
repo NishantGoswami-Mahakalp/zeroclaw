@@ -22,7 +22,6 @@ use axum::{
     response::IntoResponse,
 };
 use std::net::SocketAddr;
-use uuid::Uuid;
 
 const EMPTY_WS_RESPONSE_FALLBACK: &str =
     "Tool execution completed, but the model returned no final text response. Please ask me to summarize the result.";
@@ -410,8 +409,6 @@ pub async fn handle_ws_chat(
 }
 
 async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: String) {
-    let ws_session_id = format!("ws_{}", Uuid::new_v4());
-
     // Build system prompt once for the session
     let system_prompt = {
         let config_guard = state.config.lock();
@@ -502,7 +499,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, session_id: Strin
         }));
 
         // Full agentic loop with tools (includes WASM skills, shell, memory, etc.)
-        match super::run_gateway_chat_with_tools(&state, &content, Some(&ws_session_id)).await {
+        match super::run_gateway_chat_with_tools(&state, &content, Some(&session_id)).await {
             Ok(response) => {
                 let leak_guard_cfg = { state.config.lock().security.outbound_leak_guard.clone() };
                 let safe_response = finalize_ws_response(

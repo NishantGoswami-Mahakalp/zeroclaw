@@ -1,3 +1,4 @@
+use crate::agent::session::{shared_session_manager, Session};
 use crate::approval::{ApprovalManager, ApprovalRequest, ApprovalResponse};
 use crate::config::schema::{CostEnforcementMode, ModelPricing};
 use crate::config::{Config, ProgressMode};
@@ -3275,10 +3276,11 @@ pub async fn process_message_with_session(
         format!("{context}[{now}] {message}")
     };
 
-    let mut history = vec![
-        ChatMessage::system(&system_prompt),
-        ChatMessage::user(&enriched),
-    ];
+    let (session, persisted_history) = load_gateway_session_history(&config, session_id).await;
+
+    let mut history = vec![ChatMessage::system(&system_prompt)];
+    history.extend(persisted_history);
+    history.push(ChatMessage::user(&enriched));
 
     let cost_enforcement_context =
         create_cost_enforcement_context(&config.cost, &config.workspace_dir);
@@ -3290,7 +3292,7 @@ pub async fn process_message_with_session(
     } else {
         None
     };
-    scope_cost_enforcement_context(
+    let response = scope_cost_enforcement_context(
         cost_enforcement_context,
         SAFETY_HEARTBEAT_CONFIG.scope(
             hb_cfg,
@@ -3308,7 +3310,62 @@ pub async fn process_message_with_session(
             ),
         ),
     )
-    .await
+    .await;
+
+    if response.is_ok() {
+        persist_gateway_session_history(session.as_ref(), &history).await;
+    }
+
+    response
+}
+
+async fn load_gateway_session_history(
+    config: &Config,
+    session_id: Option<&str>,
+) -> (Option<Session>, Vec<ChatMessage>) {
+    let Some(session_id) = session_id.map(str::trim).filter(|value| !value.is_empty()) else {
+        return (None, Vec::new());
+    };
+
+    let manager = match shared_session_manager(&config.agent.session, &config.workspace_dir) {
+        Ok(Some(manager)) => manager,
+        Ok(None) => return (None, Vec::new()),
+        Err(error) => {
+            tracing::warn!(session_id, "Failed to initialize session manager: {error}");
+            return (None, Vec::new());
+        }
+    };
+
+    let session = match manager.get_or_create(session_id).await {
+        Ok(session) => session,
+        Err(error) => {
+            tracing::warn!(session_id, "Failed to open session: {error}");
+            return (None, Vec::new());
+        }
+    };
+
+    let history = match session.get_history().await {
+        Ok(history) => history,
+        Err(error) => {
+            tracing::warn!(session_id, "Failed to load session history: {error}");
+            Vec::new()
+        }
+    };
+
+    (Some(session), history)
+}
+
+async fn persist_gateway_session_history(session: Option<&Session>, history: &[ChatMessage]) {
+    let Some(session) = session else {
+        return;
+    };
+
+    if let Err(error) = session.update_history(history.to_vec()).await {
+        tracing::warn!(
+            session_id = session.id(),
+            "Failed to persist session history: {error}"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -3438,6 +3495,61 @@ mod tests {
     use crate::providers::traits::ProviderCapabilities;
     use crate::providers::ChatResponse;
     use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn load_gateway_session_history_reads_persisted_messages() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = Config::default();
+        config.workspace_dir = tmp.path().to_path_buf();
+        config.agent.session.backend = crate::config::AgentSessionBackend::Memory;
+
+        let manager = shared_session_manager(&config.agent.session, &config.workspace_dir)
+            .unwrap()
+            .unwrap();
+        let session = manager.get_or_create("sess-1").await.unwrap();
+        session
+            .update_history(vec![
+                ChatMessage::user("hello"),
+                ChatMessage::assistant("hi"),
+            ])
+            .await
+            .unwrap();
+
+        let (loaded_session, history) = load_gateway_session_history(&config, Some("sess-1")).await;
+
+        assert!(loaded_session.is_some());
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].role, "user");
+        assert_eq!(history[1].role, "assistant");
+    }
+
+    #[tokio::test]
+    async fn persist_gateway_session_history_omits_system_prompt() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = Config::default();
+        config.workspace_dir = tmp.path().to_path_buf();
+        config.agent.session.backend = crate::config::AgentSessionBackend::Memory;
+
+        let manager = shared_session_manager(&config.agent.session, &config.workspace_dir)
+            .unwrap()
+            .unwrap();
+        let session = manager.get_or_create("sess-2").await.unwrap();
+
+        persist_gateway_session_history(
+            Some(&session),
+            &[
+                ChatMessage::system("system"),
+                ChatMessage::user("hello"),
+                ChatMessage::assistant("hi"),
+            ],
+        )
+        .await;
+
+        let stored = session.get_history().await.unwrap();
+        assert_eq!(stored.len(), 2);
+        assert_eq!(stored[0].role, "user");
+        assert_eq!(stored[1].role, "assistant");
+    }
 
     struct NonVisionProvider {
         calls: Arc<AtomicUsize>,
