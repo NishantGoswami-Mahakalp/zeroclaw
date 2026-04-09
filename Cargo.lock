@@ -13069,6 +13069,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "zeroclaw-tool-call-parser"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "zeroclaw-types"
 version = "0.1.0"
 dependencies = [
@@ -13189,6 +13199,7 @@ dependencies = [
  "zeroclaw-infra",
  "zeroclaw-macros",
  "zeroclaw-providers",
+ "zeroclaw-tool-call-parser",
  "zeroclaw-types",
  "zip",
 ]
