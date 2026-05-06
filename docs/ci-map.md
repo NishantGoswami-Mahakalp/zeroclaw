@@ -61,6 +61,16 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
     - Noise control: excludes common test/fixture paths and test file patterns by default (`include_tests=false`)
 - `.github/workflows/pub-release.yml` (`Release`)
     - Purpose: build release artifacts in verification mode (manual/scheduled) and publish GitHub releases on tag push or manual publish mode
+- `.github/workflows/release-build.yml` (`Production Release Build`)
+    - Purpose: build reproducible Linux x86_64 production binaries on `main` pushes and `v*` tags using Blacksmith runners
+    - Canonical build command: `cargo build --release --locked`
+    - Quality gates: `cargo fmt --all -- --check`, `cargo clippy --locked --all-targets -- -D warnings`, and `cargo test --locked --verbose` before release build
+    - Artifact output: `zeroclaw-linux-amd64` (`target/release/zeroclaw` + `.sha256`)
+- `.github/workflows/deploy-vps.yml` (`Deploy VPS`)
+    - Purpose: deploy the verified `zeroclaw-linux-amd64` artifact from a successful `Production Release Build` run to the configured VPS over SSH
+    - Trigger: automatically after successful `Production Release Build` runs from `main`, or manually with an `artifact_run_id`
+    - Required deployment secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_PRIVATE_KEY`, `VPS_SSH_KNOWN_HOSTS`; optional `VPS_PORT` secret or variable defaults to `22`
+    - Runtime behavior: verifies artifact checksum, installs the binary to `/usr/local/bin/zeroclaw`, then restarts via `zeroclaw service restart` with systemd user and OpenRC fallbacks
 - `.github/workflows/pr-label-policy-check.yml` (`Label Policy Sanity`)
     - Purpose: validate shared contributor-tier policy in `.github/label-policy.json` and ensure label workflows consume that policy
 
@@ -98,6 +108,8 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - `Feature Matrix`: push on Rust + workflow paths to `dev`, merge queue, weekly schedule, manual dispatch; PRs only when `ci:full` or `ci:feature-matrix` label is applied
 - `Nightly All-Features`: daily schedule and manual dispatch
 - `Release`: tag push (`v*`), weekly schedule (verification-only), manual dispatch (verification or publish)
+- `Production Release Build`: push to `main`, push tags matching `v*`, manual dispatch
+- `Deploy VPS`: successful `Production Release Build` workflow runs from `main`, manual dispatch with a production artifact run ID
 - `Security Audit`: push to `dev` and `main`, PRs to `dev` and `main`, weekly schedule
 - `Sec Vorpal Reviewdog`: manual dispatch only
 - `Workflow Sanity`: PR/push when `.github/workflows/**`, `.github/*.yml`, or `.github/*.yaml` change
@@ -116,12 +128,14 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 2. Docker failures on PRs: inspect `.github/workflows/pub-docker-img.yml` `pr-smoke` job.
    - For tag-publish failures, inspect `ghcr-publish-contract.json` / `audit-event-ghcr-publish-contract.json`, `ghcr-vulnerability-gate.json` / `audit-event-ghcr-vulnerability-gate.json`, and Trivy artifacts from `pub-docker-img.yml`.
 3. Release failures (tag/manual/scheduled): inspect `.github/workflows/pub-release.yml` and the `prepare` job outputs.
-4. Security failures: inspect `.github/workflows/sec-audit.yml` and `deny.toml`.
-5. Workflow syntax/lint failures: inspect `.github/workflows/workflow-sanity.yml`.
-6. PR intake failures: inspect `.github/workflows/pr-intake-checks.yml` sticky comment and run logs. If intake policy changed recently, trigger a fresh `pull_request_target` event (for example close/reopen PR) because `Re-run jobs` can reuse the original workflow snapshot.
-7. Label policy parity failures: inspect `.github/workflows/pr-label-policy-check.yml`.
-8. Docs failures in CI: inspect `docs-quality` job logs in `.github/workflows/ci-run.yml`.
-9. Strict delta lint failures in CI: inspect `lint-strict-delta` job logs and compare with `BASE_SHA` diff scope.
+4. Production release build failures (`main`/`v*`): inspect `.github/workflows/release-build.yml` quality-gate + build steps.
+5. VPS deploy failures: inspect `.github/workflows/deploy-vps.yml`, verify the production artifact still exists, and confirm SSH secrets plus `VPS_SSH_KNOWN_HOSTS` match the target host.
+6. Security failures: inspect `.github/workflows/sec-audit.yml` and `deny.toml`.
+7. Workflow syntax/lint failures: inspect `.github/workflows/workflow-sanity.yml`.
+8. PR intake failures: inspect `.github/workflows/pr-intake-checks.yml` sticky comment and run logs. If intake policy changed recently, trigger a fresh `pull_request_target` event (for example close/reopen PR) because `Re-run jobs` can reuse the original workflow snapshot.
+9. Label policy parity failures: inspect `.github/workflows/pr-label-policy-check.yml`.
+10. Docs failures in CI: inspect `docs-quality` job logs in `.github/workflows/ci-run.yml`.
+11. Strict delta lint failures in CI: inspect `lint-strict-delta` job logs and compare with `BASE_SHA` diff scope.
 
 ## Maintenance Rules
 
@@ -140,6 +154,8 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - Keep pre-release stage transition policy + matrix coverage + transition audit semantics current in `.github/release/prerelease-stage-gates.json`.
 - Keep required check naming stable and documented in `docs/operations/required-check-mapping.md` before changing branch protection settings.
 - Follow `docs/release-process.md` for verify-before-publish release cadence and tag discipline.
+- Keep production build reproducibility anchored to `cargo build --release --locked` in `.github/workflows/release-build.yml`.
+- Keep VPS deployments downstream of successful production artifact builds; do not deploy unverified ad hoc binaries from deployment jobs.
 - Keep merge-blocking rust quality policy aligned across `.github/workflows/ci-run.yml`, `dev/ci.sh`, and `.githooks/pre-push` (`./scripts/ci/rust_quality_gate.sh` + `./scripts/ci/rust_strict_delta_gate.sh`).
 - Use `./scripts/ci/rust_strict_delta_gate.sh` (or `./dev/ci.sh lint-delta`) as the incremental strict merge gate for changed Rust lines.
 - Run full strict lint audits regularly via `./scripts/ci/rust_quality_gate.sh --strict` (for example through `./dev/ci.sh lint-strict`) and track cleanup in focused PRs.
