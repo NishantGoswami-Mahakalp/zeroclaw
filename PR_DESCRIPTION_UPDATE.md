@@ -3,6 +3,7 @@
 This PR implements the Android client for ZeroClaw with full agent integration, including foreground service, Quick Settings tile, boot receiver, and background heartbeat support.
 
 ### Changes
+
 - `ZeroClawApp.kt` - Application setup with notification channels and WorkManager
 - `SettingsRepository.kt` - DataStore + EncryptedSharedPreferences for secure settings
 - `SettingsScreen.kt` - Compose UI for configuring the agent

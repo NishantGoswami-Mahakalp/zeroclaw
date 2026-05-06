@@ -1,4 +1,5 @@
 # Comprehensive Database Migration Plan
+
 ## Fork-Friendly Approach for ZeroClaw
 
 ---
@@ -6,6 +7,7 @@
 ## Philosophy
 
 **Minimal Fork Impact:** Each migration step is a self-contained change that:
+
 - Adds new functionality without modifying existing code paths
 - Provides clear fallback behavior
 - Can be rebased onto upstream without conflicts
@@ -16,6 +18,7 @@
 ## Migration Phases
 
 ### Phase 0: Foundation (Current State)
+
 **Status:** ✅ Complete
 
 - [x] Add `src/config/db.rs` - Database layer module
@@ -29,10 +32,13 @@
 ---
 
 ### Phase 1: Optional Initialization (Priority: HIGH)
+
 **Goal:** Initialize DB alongside existing config, no runtime changes
 
 #### 1.1 Add DB initialization wrapper
+
 Create `src/config/db_wrapper.rs`:
+
 ```rust
 pub struct ConfigState {
     pub db: Option<ConfigDatabase>,  // None = DB disabled
@@ -44,7 +50,7 @@ impl ConfigState {
         let db = ConfigDatabase::new(&data_dir).ok();
         Self { db, data_dir }
     }
-    
+
     pub fn is_enabled(&self) -> bool {
         self.db.is_some()
     }
@@ -52,7 +58,9 @@ impl ConfigState {
 ```
 
 #### 1.2 Add feature flag
+
 In `Cargo.toml`:
+
 ```toml
 [features]
 default = []
@@ -60,7 +68,9 @@ db-config = ["dep:rusqlite"]
 ```
 
 #### 1.3 Add CLI flag
+
 In `src/main.rs`:
+
 - Add `--use-db-config` flag to enable DB
 - Default: disabled (uses config.toml)
 
@@ -69,12 +79,15 @@ In `src/main.rs`:
 ---
 
 ### Phase 2: CRUD API Endpoints (Priority: HIGH)
+
 **Goal:** Add REST API for DB entities, doesn't touch core runtime
 
 #### 2.1 Create API module
+
 New file: `src/gateway/api_db.rs`
 
 Endpoints to add:
+
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/db/profiles` | List profiles |
@@ -93,14 +106,18 @@ Endpoints to add:
 | DELETE | `/api/db/agents/:id` | Delete agent |
 
 #### 2.2 Wire to gateway
+
 In `src/gateway/mod.rs`:
+
 - Add conditional routes (only if DB enabled)
 - Add `config_db: Option<Arc<ConfigDatabase>>` to AppState
 
 #### 2.3 Frontend pages
+
 New/updated web pages:
+
 - `web/src/pages/Providers.tsx` - Provider management
-- `web/src/pages/Channels.tsx` - Channel management  
+- `web/src/pages/Channels.tsx` - Channel management
 - `web/src/pages/Agents.tsx` - Agent management
 
 **Fork Impact:** MEDIUM - New API routes, but non-breaking
@@ -108,9 +125,11 @@ New/updated web pages:
 ---
 
 ### Phase 3: Runtime Integration - Providers (Priority: HIGH)
+
 **Goal:** Read providers from DB at runtime, fallback to config.toml
 
 #### 3.1 Create ProviderResolver trait
+
 ```rust
 pub trait ProviderResolver {
     fn get_default_provider(&self) -> Result<ProviderConfig>;
@@ -127,7 +146,9 @@ impl ProviderResolver for DatabaseProvider { /* from DB */ }
 ```
 
 #### 3.2 Update gateway startup
+
 In `src/gateway/mod.rs` `run_gateway()`:
+
 ```rust
 let provider_resolver: Box<dyn ProviderResolver> = if config_state.db.is_some() {
     Box::new(DatabaseProvider { db: config_state.db.clone() })
@@ -137,7 +158,9 @@ let provider_resolver: Box<dyn ProviderResolver> = if config_state.db.is_some() 
 ```
 
 #### 3.3 Update agent initialization
+
 In `src/agent/mod.rs`:
+
 - Accept `ProviderResolver` in agent builder
 - Use resolver to get provider config
 
@@ -146,9 +169,11 @@ In `src/agent/mod.rs`:
 ---
 
 ### Phase 4: Runtime Integration - Channels (Priority: MEDIUM)
+
 **Goal:** Load channels from DB, fallback to config.toml
 
 #### 4.1 Create ChannelLoader trait
+
 ```rust
 pub trait ChannelLoader {
     fn load_channels(&self) -> Result<Vec<Box<dyn Channel>>>;
@@ -156,13 +181,17 @@ pub trait ChannelLoader {
 ```
 
 #### 4.2 Update channel initialization
+
 In `src/channels/mod.rs`:
+
 - Add `load_channels_from_db()` method
 - Add `load_channels_from_config()` method (existing)
 - Choose based on DB availability
 
 #### 4.3 Update gateway
+
 In `src/gateway/mod.rs`:
+
 - Pass DB to channel initialization
 - Channels read from DB if available
 
@@ -171,15 +200,20 @@ In `src/gateway/mod.rs`:
 ---
 
 ### Phase 5: Runtime Integration - Agents (Priority: MEDIUM)
+
 **Goal:** Load agent configs from DB
 
 #### 5.1 Update agent builder
+
 In `src/agent/mod.rs`:
+
 - Add `load_from_db()` method to AgentBuilder
 - Read agent config from DB
 
 #### 5.2 Update gateway
+
 In `src/gateway/mod.rs`:
+
 - Pass DB to agent initialization
 
 **Fork Impact:** MEDIUM - Modifies agent loading
@@ -187,10 +221,13 @@ In `src/gateway/mod.rs`:
 ---
 
 ### Phase 6: Onboarding Integration (Priority: LOW)
+
 **Goal:** Write initial config to DB during onboarding
 
 #### 6.1 Update onboarding wizard
+
 In `src/onboard/wizard.rs`:
+
 - Add option to write provider/agent to DB
 - Add DB initialization during first-run
 
@@ -199,9 +236,11 @@ In `src/onboard/wizard.rs`:
 ---
 
 ### Phase 7: Config Migration Tool (Priority: LOW)
+
 **Goal:** One-time migration from config.toml to DB
 
 #### 7.1 Create migration command
+
 ```bash
 zeroclaw config migrate-to-db
 ```
@@ -214,18 +253,18 @@ Reads config.toml, writes to DB, outputs confirmation.
 
 ## Fork Sync Strategy
 
-### When Syncing with Upstream:
+### When Syncing with Upstream
 
-1. **Phase 1-2 (API only):** 
+1. **Phase 1-2 (API only):**
    - Rebase cleanly
    - May need to re-add routes to gateway
 
-2. **Phase 3-5 (Runtime):**
+1. **Phase 3-5 (Runtime):**
    - May have conflicts in gateway/agent/channels
    - Keep our resolver pattern, adapt to upstream changes
    - Test fallback behavior
 
-### Conflict Resolution Guidelines:
+### Conflict Resolution Guidelines
 
 | Upstream Change | Our Change | Resolution |
 |----------------|------------|------------|
@@ -234,16 +273,17 @@ Reads config.toml, writes to DB, outputs confirmation.
 | Gateway refactor | DB init | Re-add conditionally |
 | New config fields | DB schema | Add columns |
 
-### Minimal Change Principle:
+### Minimal Change Principle
 
 Each phase adds files, minimal modifications to existing code:
+
 - Phase 1: +1 file (`db_wrapper.rs`)
 - Phase 2: +1 file (`api_db.rs`), +gateway routes
 - Phase 3: +1 file (`provider_resolver.rs`)
 - Phase 4: +1 file (`channel_loader.rs`)
 - Phase 5: Modify agent builder
 
-**Total: ~5 new files, minimal existing modifications**
+Total: ~5 new files, minimal existing modifications.
 
 ---
 
@@ -263,14 +303,16 @@ Each phase can back independently be rolled:
 
 ## Testing Strategy
 
-### Unit Tests (per phase):
+### Unit Tests (per phase)
+
 - Phase 1: Test DB initialization, migrations
 - Phase 2: Test API endpoints with mock DB
 - Phase 3: Test provider resolution (DB vs config)
 - Phase 4: Test channel loading
 - Phase 5: Test agent loading
 
-### Integration Tests:
+### Integration Tests
+
 - DB + config.toml both present → prefer DB
 - DB present, config.toml missing → use DB
 - DB missing → fallback to config.toml (existing behavior)
@@ -279,7 +321,8 @@ Each phase can back independently be rolled:
 
 ## File Inventory
 
-### New Files to Create:
+### New Files to Create
+
 ```
 src/config/
   db_wrapper.rs        # Phase 1 - Optional DB wrapper
@@ -292,7 +335,8 @@ src/agent/
   channel_loader.rs    # Phase 4 - Channel loading trait
 ```
 
-### Modified Files:
+### Modified Files
+
 ```
 src/config/mod.rs     # Phase 1 - Export db_wrapper
 src/gateway/mod.rs    # Phase 1,2,3 - DB init, routes, resolver
@@ -302,10 +346,11 @@ src/main.rs           # Phase 1 - CLI flag
 Cargo.toml            # Phase 1 - Feature flag
 ```
 
-### Web Files (Phase 2):
+### Web Files (Phase 2)
+
 ```
 web/src/pages/Providers.tsx   # NEW
-web/src/pages/Channels.tsx    # NEW  
+web/src/pages/Channels.tsx    # NEW
 web/src/pages/Agents.tsx       # NEW
 ```
 
@@ -323,7 +368,7 @@ web/src/pages/Agents.tsx       # NEW
 | Phase 6 | 1-2 hours | LOW | Week 3 |
 | Phase 7 | 2-3 hours | LOW | Week 4 |
 
-**Total: ~16-24 hours over 4 weeks**
+Total: ~16-24 hours over 4 weeks.
 
 ---
 
@@ -341,22 +386,25 @@ web/src/pages/Agents.tsx       # NEW
 ## Current Blocker Assessment
 
 **Previous Attempts Failed Because:**
+
 1. Tried to replace config.toml entirely → massive conflicts
-2. Modified too many files at once → impossible to debug
-3. No fallback strategy → build failures = complete failure
+1. Modified too many files at once → impossible to debug
+1. No fallback strategy → build failures = complete failure
 
 **This Plan Fixes By:**
+
 1. Optional, additive approach
-2. One component at a time
-3. Always maintain config.toml fallback
-4. Testable at each phase
-5. Fork-friendly minimal changes
+1. One component at a time
+1. Always maintain config.toml fallback
+1. Testable at each phase
+1. Fork-friendly minimal changes
 
 ---
 
 ## Implementation Status
 
 **Branch:** `integration/vps-upstream-merge`
+
 **Status:** ✅ ALL PHASES COMPLETE
 
 ### Completed Implementation
@@ -372,12 +420,14 @@ web/src/pages/Agents.tsx       # NEW
 | Phase 7 | ✅ | `19583a90` | Migration command |
 
 ### New Files Created
+
 - `src/config/db_wrapper.rs` - Optional DB state wrapper
 - `src/agent/provider_resolver.rs` - Provider resolution trait
 - `src/channels/loader.rs` - Channel loading trait
 - `src/gateway/api_db.rs` - REST API endpoints
 
 ### Modified Files
+
 - `src/config/mod.rs` - Exports
 - `src/main.rs` - CLI flag + config-migrate command
 - `src/onboard/wizard.rs` - DB writing during onboarding
